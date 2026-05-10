@@ -206,6 +206,7 @@ body {
 .btn-fix    { background: rgba(237,137,54,.18); color: #c05621; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
 .btn-add    { background: #48bb78; color: #fff; padding: 5px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
 .btn-note   { background: rgba(124,58,237,.18); color: #7c3aed; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
+.btn-delete { background: rgba(229,62,62,.22); color: #c53030; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
 .action-preview.note { color: #7c3aed; border-color: rgba(124,58,237,.3); background: rgba(124,58,237,.08); }
 .modify-arrow { color: var(--text-muted); margin: 0 6px; }
 </style>
@@ -231,6 +232,31 @@ body {
   </div>
 </div>
 
+<!-- 字庫（用來自動查 AI 詞的注音）-->
+<script src="../data/rhyme-dict.js"></script>
+<script>
+// ── 字 → 讀音 反查（給 AI 詞自動填注音用）──
+// rhyme-dict.js 暴露 var _rhymeDictData = {'<注音+聲調>': '常用｜一般｜冷僻', ...}
+const CHAR_READINGS = (() => {
+  const m = new Map();
+  if (typeof _rhymeDictData !== 'object' || !_rhymeDictData) return m;
+  for (const [key, val] of Object.entries(_rhymeDictData)) {
+    for (const ch of String(val).replace(/[｜\-]/g, '')) {
+      if (!m.has(ch)) m.set(ch, []);
+      m.get(ch).push(key);  // 例：'ㄔㄣˊ'
+    }
+  }
+  return m;
+})();
+// 輸入「晨曦微亮」→ 「ㄔㄣˊ ㄒㄧ ㄨㄟˊ ㄌㄧㄤˋ」；缺字以「?」佔位；破音字取第一個讀音
+function lookupWordZhuyin(word) {
+  if (!word) return '';
+  return Array.from(word).map(ch => {
+    const arr = CHAR_READINGS.get(ch);
+    return arr && arr.length ? arr[0] : '?';
+  }).join(' ');
+}
+</script>
 <script>
 // ── Config ──
 const WORKER_URL = 'https://lucky-hawaii.is3000dollar.workers.dev';
@@ -247,8 +273,8 @@ const ACTION_LABEL = {
   remove_word:        a => `🗑 移除「${a.word}」`,
   fix_word_reading:   a => `✏️ 修正「${a.word}」注音 → ${a.new_z}`,
   manual_add_word:    a => `➕ 新增詞「${a.word}」（${a.z || '無注音'} / ${tierLabel(a.tier)}）`,
-  accept_ai_word:     a => `✅ 收錄 AI 建議詞「${a.word}」`,
-  modify_ai_word:     a => `✏️ AI 建議詞「${a.original}」改為「${a.modified}」收錄`,
+  accept_ai_word:     a => `✅ 收錄 AI 建議詞「${a.word}」（${a.z || '無注音'}）`,
+  modify_ai_word:     a => `✏️ AI 建議詞「${a.original}」改為「${a.modified}」收錄（${a.z || '無注音'}）`,
   note:               a => `📝 備註：${a.text}`,
 };
 
@@ -429,6 +455,7 @@ function exec(kvKey, op, payload) {
   if (op === 'dismiss') return postDecision(kvKey, 'dismissed', null);
   if (op === 'archive') return postDecision(kvKey, 'archived', null);
   if (op === 'undo')    return postDecision(kvKey, 'pending', null);
+  if (op === 'delete')  return deleteReport(kvKey);
   const a = buildAction(r, op, payload);
   if (!a) return;
   postDecision(kvKey, 'agreed', a);
@@ -447,10 +474,37 @@ function buildAction(r, op, payload) {
     case 'hideWord':      return { type: 'hide_word',   word: r.word, reason: r.reportType };
     case 'removeWord':    return { type: 'remove_word', word: r.word, reason: r.reportType };
     case 'fixWord':       return { type: 'fix_word_reading', word: r.word, new_z: payload, reason: r.reportType };
-    case 'acceptAI':      return { type: 'accept_ai_word', word: r.word };
-    case 'modifyAI':      return { type: 'modify_ai_word', original: r.word, modified: r.modified || payload };
+    case 'acceptAI':      return { type: 'accept_ai_word', word: r.word, z: payload };
+    case 'modifyAI':      return { type: 'modify_ai_word', original: r.word, modified: r.modified || r.word, z: payload };
     case 'note':          return { type: 'note', text: payload };
     default: return null;
+  }
+}
+
+// ── 永久刪除 ──
+async function deleteReport(kvKey) {
+  if (!confirm('永久刪除這筆回報？此操作無法還原。')) return;
+  const key = getKey();
+  if (!key) { alert('密鑰遺失'); return; }
+  busyKeys.add(kvKey); render();
+  try {
+    const res = await fetch(`${WORKER_URL}/reports/delete?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kvKey })
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      alert(`刪除失敗 (${res.status})：${t}`);
+      busyKeys.delete(kvKey); render();
+      return;
+    }
+    reports = reports.filter(x => x.kvKey !== kvKey);
+    busyKeys.delete(kvKey);
+    render();
+  } catch(e) {
+    alert(`網路錯誤：${e.message}`);
+    busyKeys.delete(kvKey); render();
   }
 }
 
@@ -535,7 +589,11 @@ function commonTrailing(r) {
 }
 function postActions(r) {
   const dis = busyKeys.has(r.kvKey);
-  return btn('btn-undo', '↩ 還原', `exec('${r.kvKey}','undo')`, dis) + commonTrailing(r);
+  const undoBtn = btn('btn-undo', '↩ 還原', `exec('${r.kvKey}','undo')`, dis);
+  if (r.status === 'archived') {
+    return undoBtn + btn('btn-delete', '🗑 永久刪除', `exec('${r.kvKey}','delete')`, dis);
+  }
+  return undoBtn + commonTrailing(r);
 }
 
 function cardShell(r, headerHtml, bodyHtml, actionsHtml) {
@@ -545,7 +603,7 @@ function cardShell(r, headerHtml, bodyHtml, actionsHtml) {
     <div class="card-header">${headerHtml}<span class="card-time">${fmtTime(r.ts)}</span></div>
     ${bodyHtml || ''}
     <div class="card-actions">
-      <span class="action-preview ${status}">${esc(previewFor(r) || actionPlaceholder(r))}</span>
+      <span class="action-preview ${status}">${esc(previewFor(r))}</span>
       ${editing ? '' : actionsHtml}
     </div>
     ${editing ? editPanelHTML() : ''}
@@ -606,7 +664,9 @@ function renderWordCard(r) {
             + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
             + commonTrailing(r);
   } else if (rt === '重複出現') {
-    actions = btn('btn-dismiss','忽略（執行時問題）',`exec('${k}','dismiss')`,dis) + commonTrailing(r);
+    actions = btn('btn-remove','🗑 移除',`exec('${k}','removeWord')`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
   } else if (rt === '缺字') {
     // modal 中可編輯詞 + 注音 + 分級，「同意」與「更改」視為同一動作
     actions = btn('btn-add','✓ 新增（可編輯）',`openAddModal('${k}','addWord')`,dis)
@@ -649,15 +709,26 @@ function renderAISuggestCard(r) {
   const dis = busyKeys.has(r.kvKey);
   const k = r.kvKey;
   const isModify = r.action_kind === 'modify' || (r.modified && r.modified !== r.word);
-  let actions;
+  // 收錄目標詞：modify 用 modified，否則用原詞
+  const targetWord = isModify ? (r.modified || r.word || '') : (r.word || '');
+  const autoZ = lookupWordZhuyin(targetWord);
+  const hasMissing = autoZ.includes('?');
+
+  let actions, body = '';
   if (status !== 'pending') {
     actions = postActions(r);
-  } else if (isModify) {
-    actions = btn('btn-add','✓ 同意修改後收錄',`exec('${k}','modifyAI')`,dis)
-            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
-            + commonTrailing(r);
   } else {
-    actions = btn('btn-add','✓ 同意收錄',`exec('${k}','acceptAI')`,dis)
+    const inputId = `aiZ-${k}`;
+    const mode = isModify ? 'modify' : 'accept';
+    const label = isModify ? '✓ 同意修改後收錄' : '✓ 同意收錄';
+    body = `<div class="edit-panel" style="margin-top:10px">
+      <span style="font-size:.78rem;color:var(--text-muted);white-space:nowrap">注音</span>
+      <input id="${inputId}" value="${esc(autoZ)}" placeholder="ㄔㄣˊ ㄒㄧ ㄨㄟˊ ㄌㄧㄤˋ"
+        ${hasMissing ? 'style="border-color:#ed8936"' : ''}
+        onkeydown="if(event.key==='Enter')execAI('${k}','${mode}')">
+      ${hasMissing ? '<span style="font-size:.72rem;color:#c05621">⚠ 含未知字</span>' : ''}
+    </div>`;
+    actions = btn('btn-add', label, `execAI('${k}','${mode}')`, dis)
             + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
             + commonTrailing(r);
   }
@@ -665,7 +736,18 @@ function renderAISuggestCard(r) {
   const header = `<span class="card-type-badge feedback">AI 建議收錄</span>
       <span class="card-word">${esc(r.word || '')}</span>${arrow}
       <span class="card-reason">${isModify ? '修改後收錄' : '直接收錄'}</span>`;
-  return cardShell(r, header, '', actions);
+  return cardShell(r, header, body, actions);
+}
+
+// 從字卡內嵌的輸入框取注音，再走 exec
+function execAI(kvKey, mode) {
+  const inp = document.getElementById(`aiZ-${kvKey}`);
+  const z = (inp?.value || '').trim();
+  if (!z) { alert('請填注音'); inp?.focus(); return; }
+  if (z.includes('?')) {
+    if (!confirm('注音含「?」（缺字），仍要送出嗎？')) { inp.focus(); return; }
+  }
+  exec(kvKey, mode === 'accept' ? 'acceptAI' : 'modifyAI', z);
 }
 
 // 補相容：reports 中可能有 r.action_kind 或 r.action='accept'/'modify'（從前端送的 schema）
@@ -678,6 +760,9 @@ function normalizeAISuggest(r) {
 }
 
 // ── Export ──
+// 產生一份 standalone .py 腳本，內嵌本批 actions + 套用邏輯。
+// 跑起來會把變更累積寫進 data/rhyme-dict-overrides.json 與 data/wordlist-overrides.json，
+// 兩個 json 都是「同一檔不斷追加」。原始 rhyme-dict.js / wordlist-c*.json 完全不動。
 function exportChanges() {
   const actions = reports
     .filter(r => r.status === 'agreed' && r.action)
@@ -685,18 +770,242 @@ function exportChanges() {
 
   if (actions.length === 0) { alert('沒有已確認的變更'); return; }
 
-  const out = {
-    schema_version: '1.0',
-    generated_at: new Date().toISOString(),
-    actions
-  };
-
-  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a = document.createElement('a');
   const today = new Date().toISOString().slice(0, 10);
+  const generatedAt = new Date().toISOString();
+  const typeCounts = {};
+  for (const a of actions) typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
+  const typeSummary = Object.entries(typeCounts).map(([t, n]) => `#   ${t}: ${n}`).join('\n');
+  const kvKeys = actions.map(a => `#   ${a.source_kvKey}  (${a.type})`).join('\n');
+
+  // actions 用 JSON 內嵌（Python 認得 JSON literal 但 true/false/null 與 JS 不同 → 用 json.loads）
+  const actionsJSON = JSON.stringify(actions, null, 2);
+
+  const py = `#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+apply_changes_${today}.py — 好韻器後台確認變更，自動套用腳本
+
+由 admin 後台「匯出 agreed」於 ${generatedAt} 產生。
+共 ${actions.length} 個變更：
+${typeSummary}
+
+來源回報 (KV keys)：
+${kvKeys}
+
+執行方式：
+  cd 到專案根（內含 data/ 目錄），然後
+    python3 apply_changes_${today}.py            # 套用
+    python3 apply_changes_${today}.py --dry-run  # 預覽
+
+寫入目標（皆為「累積追加」，原始字庫/詞庫不動）：
+  data/rhyme-dict-overrides.json
+  data/wordlist-overrides.json
+日誌：
+  data/applied-changes.log
+"""
+
+import json, sys
+from datetime import datetime
+from pathlib import Path
+
+DRY_RUN = '--dry-run' in sys.argv
+
+# ── 找專案根（含 data/ 的最近祖先；找不到就用 cwd）──
+def find_base():
+    here = Path(__file__).resolve().parent
+    for p in [here, *here.parents]:
+        if (p / 'data').is_dir():
+            return p
+    return Path.cwd()
+
+BASE = find_base()
+DATA = BASE / 'data'
+RHYME_OVR = DATA / 'rhyme-dict-overrides.json'
+WORD_OVR  = DATA / 'wordlist-overrides.json'
+LOG       = DATA / 'applied-changes.log'
+
+ACTIONS = json.loads(r'''${actionsJSON.replace(/'/g, "\\u0027")}''')
+
+# ── overrides schema ──
+# rhyme-dict-overrides.json:
+#   {
+#     "version": 1,
+#     "char_readings": {
+#        "<char>|<dict_key>": {"hidden": bool, "removed": bool,
+#                              "fixed_to": {"reading":..., "dict_key":..., "tier":...}}
+#     },
+#     "added_readings": [{"char","reading","dict_key","tier","agreed_at","source_kvKey"}],
+#     "history": [ {ts, type, ...action} ]
+#   }
+# wordlist-overrides.json:
+#   {
+#     "version": 1,
+#     "words": {"<word>": {"hidden": bool, "removed": bool, "fixed_z": str}},
+#     "added_words": [{"w","z","tier","source","original?","agreed_at","source_kvKey"}],
+#     "history": [ {ts, type, ...action} ]
+#   }
+
+def load_json(path, default):
+    if path.exists():
+        try: return json.loads(path.read_text(encoding='utf-8'))
+        except Exception as e:
+            print(f'  [WARN] 讀取 {path.name} 失敗，視為空：{e}')
+    return default
+
+def save_json(path, data):
+    if DRY_RUN:
+        print(f'  [DRY RUN] would write {path.name}')
+        return
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    print(f'  ✓ 寫入 {path.name}')
+
+def ensure_rhyme_ovr():
+    return load_json(RHYME_OVR, {'version': 1, 'char_readings': {}, 'added_readings': [], 'history': []})
+
+def ensure_word_ovr():
+    return load_json(WORD_OVR, {'version': 1, 'words': {}, 'added_words': [], 'history': []})
+
+# ── 套用單一 action ──
+def apply_action(action, rhyme_ovr, word_ovr):
+    t = action.get('type')
+    meta = {k: action.get(k) for k in ('agreed_at', 'source_kvKey') if action.get(k)}
+
+    # 字級
+    if t in ('hide_char_reading', 'remove_char_reading'):
+        ck = f"{action['char']}|{action['dict_key']}"
+        entry = rhyme_ovr['char_readings'].setdefault(ck, {})
+        flag = 'hidden' if t == 'hide_char_reading' else 'removed'
+        entry[flag] = True
+        if action.get('reading'): entry['reading'] = action['reading']
+        print(f'  ✓ {t}  {ck}')
+        return 'rhyme'
+
+    if t == 'fix_char_reading':
+        ck = f"{action['char']}|{action['old_dict_key']}"
+        rhyme_ovr['char_readings'].setdefault(ck, {})['fixed_to'] = {
+            'reading':  action['new_reading'],
+            'dict_key': action['new_dict_key'],
+        }
+        print(f'  ✓ fix_char_reading  {ck} → {action["new_reading"]}')
+        return 'rhyme'
+
+    if t == 'manual_add_reading':
+        rhyme_ovr['added_readings'].append({
+            'char':     action['char'],
+            'reading':  action['new_reading'],
+            'dict_key': action['new_dict_key'],
+            'tier':     action.get('to_tier', 'normal'),
+            **meta,
+        })
+        print(f'  ✓ manual_add_reading  {action["char"]} {action["new_reading"]} ({action.get("to_tier")})')
+        return 'rhyme'
+
+    # 詞級
+    if t in ('hide_word', 'remove_word'):
+        flag = 'hidden' if t == 'hide_word' else 'removed'
+        word_ovr['words'].setdefault(action['word'], {})[flag] = True
+        print(f'  ✓ {t}  {action["word"]}')
+        return 'word'
+
+    if t == 'fix_word_reading':
+        word_ovr['words'].setdefault(action['word'], {})['fixed_z'] = action['new_z']
+        print(f'  ✓ fix_word_reading  {action["word"]} → {action["new_z"]}')
+        return 'word'
+
+    if t == 'manual_add_word':
+        word_ovr['added_words'].append({
+            'w': action['word'], 'z': action.get('z', ''),
+            'tier': action.get('tier', 'normal'),
+            'source': 'manual',
+            **meta,
+        })
+        if not action.get('z'):
+            print(f'  [WARN] manual_add_word "{action["word"]}" 缺注音 z，已寫入但前端會無法處理')
+        print(f'  ✓ manual_add_word  {action["word"]} ({action.get("z","?")})')
+        return 'word'
+
+    if t == 'accept_ai_word':
+        z = action.get('z', '')
+        word_ovr['added_words'].append({
+            'w': action['word'], 'z': z,
+            'tier': 'normal', 'source': 'ai_accept', **meta,
+        })
+        if not z or '?' in z:
+            print(f'  [WARN] accept_ai_word "{action["word"]}" 注音空或含 ?：{z!r}')
+        else:
+            print(f'  ✓ accept_ai_word  {action["word"]} ({z})')
+        return 'word'
+
+    if t == 'modify_ai_word':
+        z = action.get('z', '')
+        word_ovr['added_words'].append({
+            'w': action['modified'], 'z': z,
+            'tier': 'normal', 'source': 'ai_modify',
+            'original': action.get('original'),
+            **meta,
+        })
+        if not z or '?' in z:
+            print(f'  [WARN] modify_ai_word "{action.get("original")}" → "{action["modified"]}" 注音空或含 ?：{z!r}')
+        else:
+            print(f'  ✓ modify_ai_word  {action.get("original")} → {action["modified"]} ({z})')
+        return 'word'
+
+    if t == 'note':
+        print(f'  📝 note: {action.get("text", "")}')
+        return None
+
+    print(f'  [SKIP] 未知 action type: {t}')
+    return None
+
+# ── 主流程 ──
+def main():
+    tag = '[DRY RUN] ' if DRY_RUN else ''
+    print(f'{tag}apply_changes_${today}  |  {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    print(f'BASE = {BASE}')
+    print(f'共 {len(ACTIONS)} 個變更\\n')
+    if not ACTIONS:
+        print('沒有變更需要套用。'); return
+
+    rhyme_ovr = ensure_rhyme_ovr()
+    word_ovr  = ensure_word_ovr()
+    rhyme_changed = word_changed = False
+    log_lines = []
+    now = datetime.now().isoformat()
+
+    for action in ACTIONS:
+        which = apply_action(action, rhyme_ovr, word_ovr)
+        if which == 'rhyme':
+            rhyme_changed = True
+            rhyme_ovr['history'].append({'ts': now, **action})
+        elif which == 'word':
+            word_changed = True
+            word_ovr['history'].append({'ts': now, **action})
+        log_lines.append(f"{now} | {action.get('type')} | {json.dumps(action, ensure_ascii=False)}")
+
+    print()
+    if rhyme_changed:
+        rhyme_ovr['updated_at'] = now
+        save_json(RHYME_OVR, rhyme_ovr)
+    if word_changed:
+        word_ovr['updated_at'] = now
+        save_json(WORD_OVR, word_ovr)
+
+    if not DRY_RUN:
+        with open(LOG, 'a', encoding='utf-8') as f:
+            f.write('\\n'.join(log_lines) + '\\n')
+        print(f'  日誌 → {LOG.name}')
+
+    print('\\n完成。')
+
+if __name__ == '__main__':
+    main()
+`;
+
+  const blob = new Blob([py], { type: 'text/x-python;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
   a.href = url;
-  a.download = `pending-changes-${today}.json`;
+  a.download = `apply_changes_${today}.py`;
   a.click();
   URL.revokeObjectURL(url);
 }
