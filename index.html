@@ -71,7 +71,7 @@
             display: flex;
             flex-direction: column;
             animation: slideIn 0.5s ease-out;
-            transition: background 0.3s ease, box-shadow 0.3s ease, margin-left 0.3s ease, margin-right 0.3s ease, max-width 0.3s ease;
+            transition: background 0.3s ease, box-shadow 0.3s ease;
         }
         
         @keyframes slideIn {
@@ -722,7 +722,6 @@
         .left-panel {
             left: 0;
             width: 400px;
-            min-width: 300px;
             border-radius: 0 18px 18px 0;
             flex-direction: row;
         }
@@ -732,7 +731,6 @@
         .right-panel {
             right: 0;
             width: 400px;
-            min-width: 300px;
             border-radius: 18px 0 0 18px;
             flex-direction: row-reverse;
         }
@@ -3851,42 +3849,29 @@
         }
 
         function syncCenterPanel() {
-            const container = document.querySelector('.container');
             const lp = document.getElementById('leftPanel');
             const rp = document.getElementById('rightPanel');
-            if (!container || !lp || !rp) return;
+            if (!lp || !rp) return;
 
             if (window.innerWidth <= 900) {
-                container.style.maxWidth = '';
-                container.style.marginLeft = '';
-                container.style.marginRight = '';
                 lp.style.transform = '';
                 rp.style.transform = '';
                 return;
             }
 
             const vw = window.innerWidth;
-            const lpExp = !lp.classList.contains('collapsed');
-            const rpExp = !rp.classList.contains('collapsed');
+            const containerW = Math.min(900, vw);
+            const containerLeft = (vw - containerW) / 2;
             const GAP = 5;
             const MIN_PANEL = 300;
             const PANEL_W = 400;
 
-            // container 預設不動，但若面板空間 < 300px 才壓縮
-            let containerW = 900;
-            if (lpExp || rpExp) {
-                const naturalSide = (vw - containerW) / 2 - GAP;
-                if (naturalSide < MIN_PANEL) {
-                    containerW = Math.max(0, vw - 2 * (MIN_PANEL + GAP));
-                }
-            }
-            container.style.maxWidth = containerW + 'px';
-            container.style.marginLeft = '';
-            container.style.marginRight = '';
+            // 面板可見寬 = container 左邊界 - 5px，最少 300px（不足時疊進 container）
+            const visibleW = Math.min(PANEL_W, Math.max(MIN_PANEL, containerLeft - GAP));
+            const shift = visibleW - PANEL_W; // 永遠 ≤ 0
 
-            // 面板貼到 container 邊緣留 GAP
-            const sideSpace = (vw - containerW) / 2 - GAP;
-            const shift = Math.min(0, sideSpace - PANEL_W); // 負值 = 往外推
+            const lpExp = !lp.classList.contains('collapsed');
+            const rpExp = !rp.classList.contains('collapsed');
 
             lp.style.transform = lpExp && shift < 0 ? `translateX(${shift}px)` : '';
             rp.style.transform = rpExp && shift < 0 ? `translateX(${-shift}px)` : '';
