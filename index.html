@@ -2716,6 +2716,74 @@
             try { localStorage.setItem('dictOverrides_v076', JSON.stringify(dictOverrides)); } catch(e) {}
         }
 
+        // ── 後台匯出的字庫 overrides（data/rhyme-dict-overrides.json）──
+        // 由 admin/exportChanges() 產出的 .py 跑完後寫入；累積追加。
+        // 套用時機：boot 完跑 buildIndex() 後，async fetch → 套用 → 再 buildIndex() 一次
+        function _removeCharFromRhymeKey(dictKey, char) {
+            const entry = rhymeDict[dictKey];
+            if (!entry) return false;
+            const parts = entry.split('｜');
+            while (parts.length < 3) parts.push('—');
+            let touched = false;
+            for (let i = 0; i < parts.length; i++) {
+                const chars = [...parts[i]].filter(c => c !== '—' && c !== '-' && c.trim());
+                const idx = chars.indexOf(char);
+                if (idx >= 0) {
+                    chars.splice(idx, 1);
+                    parts[i] = chars.length ? chars.join('') : '—';
+                    touched = true;
+                }
+            }
+            if (touched) {
+                if (parts.every(p => p === '—')) delete rhymeDict[dictKey];
+                else rhymeDict[dictKey] = parts.join('｜');
+            }
+            return touched;
+        }
+
+        function _addCharToRhymeKey(dictKey, char, tier) {
+            const tierIdx = { common: 0, normal: 1, rare: 2 }[tier] ?? 1;
+            const entry = rhymeDict[dictKey] || '—｜—｜—';
+            const parts = entry.split('｜');
+            while (parts.length < 3) parts.push('—');
+            for (let i = 0; i < parts.length; i++) {
+                const chars = [...parts[i]].filter(c => c !== '—' && c !== '-' && c.trim() && c !== char);
+                parts[i] = chars.length ? chars.join('') : '—';
+            }
+            parts[tierIdx] = parts[tierIdx] === '—' ? char : parts[tierIdx] + char;
+            rhymeDict[dictKey] = parts.join('｜');
+        }
+
+        async function applyRhymeDictOverrides() {
+            let ovr;
+            try {
+                const r = await fetch('data/rhyme-dict-overrides.json', { cache: 'no-cache' });
+                if (!r.ok) return false;
+                ovr = await r.json();
+            } catch(e) { return false; }
+            let count = 0;
+            for (const [ck, op] of Object.entries(ovr.char_readings || {})) {
+                const pipe = ck.indexOf('|');
+                if (pipe < 0) continue;
+                const char = ck.slice(0, pipe);
+                const dictKey = ck.slice(pipe + 1);
+                if (op.hidden || op.removed) {
+                    if (_removeCharFromRhymeKey(dictKey, char)) count++;
+                } else if (op.fixed_to && op.fixed_to.dict_key) {
+                    _removeCharFromRhymeKey(dictKey, char);
+                    _addCharToRhymeKey(op.fixed_to.dict_key, char, op.fixed_to.tier || 'normal');
+                    count++;
+                }
+            }
+            for (const a of (ovr.added_readings || [])) {
+                if (!a.char || !a.dict_key) continue;
+                _addCharToRhymeKey(a.dict_key, a.char, a.tier || 'normal');
+                count++;
+            }
+            if (count) console.log(`[rhyme overrides] ${count} 條套用`);
+            return count > 0;
+        }
+
         // 取得字的分級（直接從 charInfo 讀取，永遠是最新狀態）
         function getCharMark(char, zhuyin) {
             const infos = charInfo[char];
@@ -3862,8 +3930,54 @@
             if (!useCache && db && buf.length > 0 && currentVer) _idbPut(db, 'ver', currentVer);
 
             wordlistData = buf.length > 0 ? buf : null;
+            await applyWordlistOverrides();
             wordlistLoading = false;
             updateWordlistProgress(WORDLIST_CHUNKS, WORDLIST_CHUNKS);
+        }
+
+        // ── 後台匯出的詞庫 overrides（data/wordlist-overrides.json）──
+        // 不存進 IDB（避免改 overrides 要重 build 詞庫），每次 loadWordlist 末段重新套用
+        async function applyWordlistOverrides() {
+            if (!wordlistData) return;
+            let ovr;
+            try {
+                const r = await fetch('data/wordlist-overrides.json', { cache: 'no-cache' });
+                if (!r.ok) return;
+                ovr = await r.json();
+            } catch(e) { return; }
+            const wordOps = ovr.words || {};
+            const added   = ovr.added_words || [];
+            const before  = wordlistData.length;
+            const filtered = [];
+            let removed = 0, fixed = 0;
+            for (const e of wordlistData) {
+                const op = wordOps[e.w];
+                if (op && (op.hidden || op.removed)) {
+                    wordPriorityMap.delete(e.w);
+                    wordPhoneticMap.delete(e.w);
+                    removed++;
+                    continue;
+                }
+                if (op && op.fixed_z) {
+                    e.z = op.fixed_z;
+                    wordPhoneticMap.set(e.w, e.z);
+                    fixed++;
+                }
+                filtered.push(e);
+            }
+            let addedCount = 0;
+            for (const a of added) {
+                if (!a.w || !a.z || a.z.includes('?')) continue;  // 缺注音的跳過
+                const entry = { w: a.w, z: a.z, p: a.p ?? 1 };
+                filtered.push(entry);
+                wordPriorityMap.set(a.w, entry.p);
+                wordPhoneticMap.set(a.w, entry.z);
+                addedCount++;
+            }
+            wordlistData = filtered;
+            if (removed || fixed || addedCount) {
+                console.log(`[wordlist overrides] before=${before} → after=${filtered.length} (removed=${removed}, fixed=${fixed}, added=${addedCount})`);
+            }
         }
 
         // rhymes: currentRhymes 陣列, targetLen: 目標詞長, minPriority: 本輪門檻
@@ -5706,6 +5820,8 @@
         loadDictOverrides();
         buildIndex();
         loadPolyphonicsOrder(); // 背景載入破音字讀音順序表
+        // 背景套用後台 overrides（data/rhyme-dict-overrides.json），完成後 rebuild
+        applyRhymeDictOverrides().then(applied => { if (applied) buildIndex(); });
 
         // 手機版（≤440px）：將 batch panel 移入搜尋區域
         if (!!phone) {
