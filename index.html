@@ -2882,7 +2882,7 @@
         function searchRhyme(input) {
             if (!input) { searchedTerms = []; return []; }
             input = input.trim();
-            if (input !== lastSearchInput) { suggestedPool.clear(); sentCandidatesSet.clear(); cumulativeCandidates = []; }
+            if (input !== lastSearchInput) { suggestedPool.clear(); sentCandidatesSet.clear(); cumulativeCandidates = []; _aiExtraRoundDone = false; }
             lastSearchInput = input;
             const isBopomofo = /[ㄅ-ㄩ]/.test(input);
             const hasChinese = /[\u4e00-\u9fff]/.test(input);
@@ -3169,6 +3169,7 @@
         let suggestedPool = new Set();
         let sentCandidatesSet = new Set();
         let cumulativeCandidates = [];
+        let _aiExtraRoundDone = false;
         let filterSameTone = false;
         let filterSameChar = false;
         let filterNoExtRhyme = false;
@@ -3941,6 +3942,7 @@
             suggestedPool.clear();
             sentCandidatesSet.clear();
             cumulativeCandidates = [];
+            _aiExtraRoundDone = false;
             const c = document.getElementById('aiWordsContainer');
             if (c) c.innerHTML = '';
         }
@@ -4387,6 +4389,7 @@
             suggestedPool.clear();
             sentCandidatesSet.clear();
             cumulativeCandidates = [];
+            _aiExtraRoundDone = false;
             const c = document.getElementById('aiWordsContainer');
             if (c) c.innerHTML = '';
         }
@@ -4666,6 +4669,7 @@
                 const m = LLM_MODELS[i]; if (m.autoFallback && isModelAvailable(m)) tryList.push(m);
             }
 
+            let aiWordsAdded = false;
             for (const m of tryList) {
                 try {
                     statusDiv.textContent = `AI 生成補充詞…（${m.label}）`;
@@ -4681,11 +4685,21 @@
                         const report = container.querySelector('.candidate-report');
                         if (report) report.insertAdjacentHTML('beforebegin', html);
                         else container.insertAdjacentHTML('beforeend', html);
+                        aiWordsAdded = true;
                     }
-                    return;
+                    break;
                 } catch (e) { /* 嘗試下一個 */ }
             }
-            statusDiv.remove();
+            if (statusDiv.isConnected) statusDiv.remove();
+            if (!aiWordsAdded) {
+                const msg = document.createElement('div');
+                msg.className = 'candidate-report';
+                msg.style.fontStyle = 'italic';
+                msg.textContent = 'AI 也想不到更多符合的詞彙，你自己想吧';
+                const report = container.querySelector('.candidate-report');
+                if (report) report.before(msg);
+                else container.appendChild(msg);
+            }
         }
 
         async function generateAISuggestions() {
@@ -4735,8 +4749,14 @@
                 newBatch.forEach(w => sentCandidatesSet.add(w));
                 cumulativeCandidates = [...activePool, ...newBatch];
                 if (cumulativeCandidates.length === 0) {
-                    container.innerHTML = `<div class="ai-exhausted">已推薦所有含選字的詞彙<button class="reset-pool-btn" onclick="resetSuggestedPool()">↺ 重置</button></div>`;
-                    btn.disabled = false; loading.style.display = 'none'; return;
+                    if (_aiExtraRoundDone) {
+                        container.innerHTML = `<div class="ai-exhausted">已推薦所有含選字的詞彙<button class="reset-pool-btn" onclick="resetSuggestedPool()">↺ 重置</button></div>`;
+                        btn.disabled = false; loading.style.display = 'none'; return;
+                    }
+                    _aiExtraRoundDone = true;
+                    btn.disabled = false; loading.style.display = 'none'; loading.textContent = 'AI 思考中…';
+                    await generateAIWords(24, container, new Set([...suggestedPool, ...savedWords]));
+                    return;
                 }
                 usingWordlist = true;
                 lastCandidatesTotal = cumulativeCandidates.length;
@@ -4764,8 +4784,14 @@
                 newBatch.forEach(w => sentCandidatesSet.add(w));
                 cumulativeCandidates = [...activePool, ...newBatch];
                 if (cumulativeCandidates.length === 0) {
-                    container.innerHTML = `<div class="ai-exhausted">已推薦所有符合的詞彙<button class="reset-pool-btn" onclick="resetSuggestedPool()">↺ 重置</button></div>`;
-                    btn.disabled = false; loading.style.display = 'none'; return;
+                    if (_aiExtraRoundDone) {
+                        container.innerHTML = `<div class="ai-exhausted">已推薦所有符合的詞彙<button class="reset-pool-btn" onclick="resetSuggestedPool()">↺ 重置</button></div>`;
+                        btn.disabled = false; loading.style.display = 'none'; return;
+                    }
+                    _aiExtraRoundDone = true;
+                    btn.disabled = false; loading.style.display = 'none'; loading.textContent = 'AI 思考中…';
+                    await generateAIWords(24, container, new Set([...suggestedPool, ...savedWords]));
+                    return;
                 }
                 usingWordlist = true;
                 lastCandidatesTotal = cumulativeCandidates.length;
@@ -4791,8 +4817,14 @@
                 newBatch.forEach(w => sentCandidatesSet.add(w));
                 cumulativeCandidates = [...activePool, ...newBatch];
                 if (cumulativeCandidates.length === 0) {
-                    container.innerHTML = `<div class="ai-exhausted">已推薦所有符合的詞彙<button class="reset-pool-btn" onclick="resetSuggestedPool()">↺ 重置</button></div>`;
-                    btn.disabled = false; loading.style.display = 'none'; return;
+                    if (_aiExtraRoundDone) {
+                        container.innerHTML = `<div class="ai-exhausted">已推薦所有符合的詞彙<button class="reset-pool-btn" onclick="resetSuggestedPool()">↺ 重置</button></div>`;
+                        btn.disabled = false; loading.style.display = 'none'; return;
+                    }
+                    _aiExtraRoundDone = true;
+                    btn.disabled = false; loading.style.display = 'none'; loading.textContent = 'AI 思考中…';
+                    await generateAIWords(24, container, new Set([...suggestedPool, ...savedWords]));
+                    return;
                 }
                 usingWordlist = true;
                 lastCandidatesTotal = cumulativeCandidates.length;
@@ -4806,8 +4838,8 @@
                 直接輸出詞語，頓號「、」分隔，不要說明或編號。`;
             }
 
-            // 候選詞 <24 且無情境 → 直接全數列出，再由 AI 補足
-            if (usingWordlist && cumulativeCandidates.length > 0 && cumulativeCandidates.length < 24 && !hasContext) {
+            // 候選詞 <24 → 直接全數列出，再由 AI 補足
+            if (usingWordlist && cumulativeCandidates.length > 0 && cumulativeCandidates.length < 24) {
                 const directWords = [...cumulativeCandidates];
                 directWords.forEach(w => { suggestedPool.add(w); sentCandidatesSet.add(w); });
                 const shownSet = new Set(directWords);
@@ -4864,14 +4896,6 @@
             btn.disabled = false;
             loading.style.display = 'none';
             loading.textContent = 'AI 思考中…';
-            // 若 AI 選詞不足 24 個，補足至 24
-            if (succeeded) {
-                const shownCards = container.querySelectorAll('.ai-word-card');
-                if (shownCards.length > 0 && shownCards.length < 24) {
-                    const shownSet = new Set([...shownCards].map(c => c.dataset.word || c.textContent.trim()));
-                    await generateAIWords(24 - shownCards.length, container, shownSet);
-                }
-            }
         }
 
         // ===== 從歌詞自動生成情境與標籤 =====
