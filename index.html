@@ -5517,18 +5517,6 @@
         const _ctxMenu = document.getElementById('wordCtxMenu');
         function _hideCtxMenu() { _ctxMenu.classList.remove('show'); }
 
-        _aiWordsCt.addEventListener('contextmenu', e => {
-            const card = e.target.closest('.ai-word-card');
-            if (!card) return;
-            e.preventDefault();
-            _ctxWord = card.dataset.word || card.textContent.replace('AI','').trim();
-            document.getElementById('wordCtxTitle').textContent = `「${_ctxWord}」`;
-            const x = Math.min(e.clientX, window.innerWidth - 160);
-            const y = Math.min(e.clientY, window.innerHeight - 140);
-            _ctxMenu.style.left = x + 'px';
-            _ctxMenu.style.top = y + 'px';
-            _ctxMenu.classList.add('show');
-        });
         window.addEventListener('resize', syncCenterPanel);
         document.addEventListener('click', _hideCtxMenu);
         document.addEventListener('contextmenu', e => {
@@ -5582,6 +5570,18 @@
             return el;
         })();
         const _aiWordsCt = document.getElementById('aiWordsContainer');
+        _aiWordsCt.addEventListener('contextmenu', e => {
+            const card = e.target.closest('.ai-word-card');
+            if (!card) return;
+            e.preventDefault();
+            _ctxWord = card.dataset.word || card.textContent.replace('AI','').trim();
+            document.getElementById('wordCtxTitle').textContent = `「${_ctxWord}」`;
+            const x = Math.min(e.clientX, window.innerWidth - 160);
+            const y = Math.min(e.clientY, window.innerHeight - 140);
+            _ctxMenu.style.left = x + 'px';
+            _ctxMenu.style.top = y + 'px';
+            _ctxMenu.classList.add('show');
+        });
         _aiWordsCt.addEventListener('mouseover', e => {
             const card = e.target.closest('.ai-word-card');
             if (!card || !card.dataset.word) return;
