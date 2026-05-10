@@ -71,7 +71,7 @@
             display: flex;
             flex-direction: column;
             animation: slideIn 0.5s ease-out;
-            transition: background 0.3s ease, box-shadow 0.3s ease;
+            transition: background 0.3s ease, box-shadow 0.3s ease, margin-left 0.3s ease, margin-right 0.3s ease, max-width 0.3s ease;
         }
         
         @keyframes slideIn {
@@ -722,6 +722,7 @@
         .left-panel {
             left: 0;
             width: 400px;
+            min-width: 300px;
             border-radius: 0 18px 18px 0;
             flex-direction: row;
         }
@@ -731,6 +732,7 @@
         .right-panel {
             right: 0;
             width: 400px;
+            min-width: 300px;
             border-radius: 18px 0 0 18px;
             flex-direction: row-reverse;
         }
@@ -1091,6 +1093,56 @@
             transition: background 0.15s;
         }
         .word-ctx-item:hover { background: rgba(141,81,201,0.08); }
+        .word-ctx-divider { height: 1px; background: var(--border); margin: 3px 0; }
+
+        .feedback-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 12000;
+            align-items: center;
+            justify-content: center;
+        }
+        .feedback-modal-overlay.show { display: flex; }
+        .feedback-modal {
+            background: var(--container-bg);
+            border-radius: 14px;
+            padding: 24px;
+            width: min(420px, 90vw);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+        }
+        .feedback-modal h3 { margin: 0 0 16px; font-size: 1rem; color: var(--text-primary); }
+        .feedback-modal input, .feedback-modal textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 12px;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            background: var(--input-bg, var(--card-bg));
+            color: var(--text-primary);
+            font-family: 'Noto Sans TC', sans-serif;
+            font-size: 0.88rem;
+            margin-bottom: 10px;
+            resize: none;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .feedback-modal input:focus, .feedback-modal textarea:focus { border-color: #667eea; }
+        .feedback-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+        .feedback-modal-actions button {
+            padding: 7px 18px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border: 1.5px solid var(--border);
+            font-family: 'Noto Sans TC', sans-serif;
+            transition: all 0.2s;
+        }
+        .feedback-send-btn { background: #667eea; color: #fff; border-color: #667eea; }
+        .feedback-send-btn:hover { background: #5a67d8; }
+        .feedback-cancel-btn { background: none; color: var(--text-secondary); }
+        .feedback-cancel-btn:hover { border-color: #667eea; color: #667eea; }
         .ai-exhausted {
             text-align: center;
             padding: 22px 10px 14px;
@@ -2179,7 +2231,7 @@
         <div class="footer">
             創作者專屬工具 · 歡迎分享
             <span class="about-btn" onclick="toggleAbout()">i</span>
-            <button class="feedback-btn" onclick="reportMissingChar('')">回報</button>
+            <button class="feedback-btn" onclick="openFeedbackModal()">回報</button>
         </div>
 
         <div class="about-overlay" id="aboutOverlay" onclick="closeAbout(event)">
@@ -2254,9 +2306,22 @@
 
     <div class="word-ctx-menu" id="wordCtxMenu">
         <div class="word-ctx-menu-title" id="wordCtxTitle">—</div>
-        <div class="word-ctx-item" onclick="wordCtxReport('rare')">📦 冷僻詞</div>
-        <div class="word-ctx-item" onclick="wordCtxReport('phonetic')">🔊 讀音錯誤</div>
-        <div class="word-ctx-item" onclick="wordCtxReport('remove')">🗑️ 建議刪除</div>
+        <div class="word-ctx-item" onclick="wordCtxReport('rhyme')">🎵 押韻錯誤</div>
+        <div class="word-ctx-item" onclick="wordCtxReport('notExist')">❓ 詞不存在</div>
+        <div class="word-ctx-item" onclick="wordCtxReport('duplicate')">🔁 重複出現</div>
+        <div class="word-ctx-item" onclick="wordCtxReport('obscure')">📦 極度冷僻</div>
+    </div>
+
+    <div class="feedback-modal-overlay" id="feedbackModalOverlay" onclick="closeFeedbackModal(event)">
+        <div class="feedback-modal" onclick="event.stopPropagation()">
+            <h3>意見回饋</h3>
+            <input id="feedbackSubject" placeholder="主旨（例：建議、問題回報）" maxlength="80">
+            <textarea id="feedbackBody" placeholder="內文…" rows="5"></textarea>
+            <div class="feedback-modal-actions">
+                <button class="feedback-cancel-btn" onclick="closeFeedbackModal()">取消</button>
+                <button class="feedback-send-btn" onclick="submitFeedback()">送出</button>
+            </div>
+        </div>
     </div>
 
     <div class="m-batch-panel" id="m-batchPanel">
@@ -3380,6 +3445,7 @@
             const panel = document.getElementById('leftPanel');
             panel.classList.toggle('collapsed');
             localStorage.setItem('leftPanelCollapsed', panel.classList.contains('collapsed'));
+            syncCenterPanel();
         }
 
         function saveLyrics() {
@@ -3781,6 +3847,49 @@
             panel.classList.toggle('collapsed');
             localStorage.setItem('rightPanelCollapsed', panel.classList.contains('collapsed'));
             //if (!panel.classList.contains('collapsed')) loadWordlist();
+            syncCenterPanel();
+        }
+
+        function syncCenterPanel() {
+            const container = document.querySelector('.container');
+            const lp = document.getElementById('leftPanel');
+            const rp = document.getElementById('rightPanel');
+            if (!container || !lp || !rp) return;
+
+            if (window.innerWidth <= 900) {
+                container.style.maxWidth = '';
+                container.style.marginLeft = '';
+                container.style.marginRight = '';
+                lp.style.transform = '';
+                rp.style.transform = '';
+                return;
+            }
+
+            const vw = window.innerWidth;
+            const lpExp = !lp.classList.contains('collapsed');
+            const rpExp = !rp.classList.contains('collapsed');
+            const GAP = 5;
+            const MIN_PANEL = 300;
+            const PANEL_W = 400;
+
+            // container 預設不動，但若面板空間 < 300px 才壓縮
+            let containerW = 900;
+            if (lpExp || rpExp) {
+                const naturalSide = (vw - containerW) / 2 - GAP;
+                if (naturalSide < MIN_PANEL) {
+                    containerW = Math.max(0, vw - 2 * (MIN_PANEL + GAP));
+                }
+            }
+            container.style.maxWidth = containerW + 'px';
+            container.style.marginLeft = '';
+            container.style.marginRight = '';
+
+            // 面板貼到 container 邊緣留 GAP
+            const sideSpace = (vw - containerW) / 2 - GAP;
+            const shift = Math.min(0, sideSpace - PANEL_W); // 負值 = 往外推
+
+            lp.style.transform = lpExp && shift < 0 ? `translateX(${shift}px)` : '';
+            rp.style.transform = rpExp && shift < 0 ? `translateX(${-shift}px)` : '';
         }
 
         function mobileTab(tab) {
@@ -3968,13 +4077,8 @@
         }
 
         function reportMissingChar(char) {
-            const title = char
-                ? encodeURIComponent(`缺字回報：${char}`)
-                : encodeURIComponent(`回報 / 建議`);
-            const body = char
-                ? encodeURIComponent(`字庫中找不到「${char}」的注音資料，請補充。\n\n格式範例：豅 - ㄌㄨㄥˊ\n${char} - `)
-                : encodeURIComponent(`**問題描述 / 建議內容：**\n\n`);
-            window.open(`https://github.com/andy-coin/Lucky-Hawaii/issues/new?title=${title}&body=${body}`, '_blank');
+            postFeedback({ type: 'word-report', word: char, reportType: '缺字' });
+            showToast(`已回報缺字「${char}」`);
         }
 
         const WORKER_URL = 'https://lucky-hawaii.is3000dollar.workers.dev';
@@ -4811,6 +4915,7 @@
                 document.getElementById('leftPanel').classList.add('collapsed');
                 document.getElementById('rightPanel').classList.add('collapsed');
             }
+            syncCenterPanel();
 
             // 歌詞全空時自動清除情境與標籤
             if (lyricsSections.every(s => !s.text || s.text.trim() === '')) {
@@ -5439,6 +5544,7 @@
             _ctxMenu.style.top = y + 'px';
             _ctxMenu.classList.add('show');
         });
+        window.addEventListener('resize', syncCenterPanel);
         document.addEventListener('click', _hideCtxMenu);
         document.addEventListener('contextmenu', e => {
             if (!e.target.closest('.word-ctx-menu') && !e.target.closest('.ai-word-card')) _hideCtxMenu();
@@ -5446,16 +5552,40 @@
 
         function wordCtxReport(type) {
             _hideCtxMenu();
-            const w = _ctxWord;
-            const labels = { rare: '冷僻詞回報', phonetic: '讀音錯誤回報', remove: '建議刪除' };
-            const bodies = {
-                rare: `詞語「${w}」建議標記為冷僻詞，在一般歌詞創作中不常用。`,
-                phonetic: `詞語「${w}」的注音/拼音標記可能有誤，建議核查。\n\n正確讀音：（請填寫）`,
-                remove: `詞語「${w}」建議從 AI 候選詞庫中移除。\n\n原因：（請填寫）`
-            };
-            const title = encodeURIComponent(`[詞庫回報] ${labels[type]}：${w}`);
-            const body = encodeURIComponent(`${bodies[type]}\n\n---\n*由好韻器詞卡右鍵回報*`);
-            window.open(`https://github.com/andy-coin/Lucky-Hawaii/issues/new?title=${title}&body=${body}&labels=wordlist-feedback`, '_blank');
+            const labels = { rhyme: '押韻錯誤', notExist: '詞不存在', duplicate: '重複出現', obscure: '極度冷僻' };
+            postFeedback({ type: 'word-report', word: _ctxWord, reportType: labels[type] });
+            showToast(`已回報「${_ctxWord}」— ${labels[type]}`);
+        }
+
+        async function postFeedback(data) {
+            try {
+                await fetch(WORKER_URL + '/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+            } catch(e) {}
+        }
+
+        function openFeedbackModal() {
+            document.getElementById('feedbackSubject').value = '';
+            document.getElementById('feedbackBody').value = '';
+            document.getElementById('feedbackModalOverlay').classList.add('show');
+            setTimeout(() => document.getElementById('feedbackSubject').focus(), 50);
+        }
+
+        function closeFeedbackModal(e) {
+            if (e && e.target !== document.getElementById('feedbackModalOverlay')) return;
+            document.getElementById('feedbackModalOverlay').classList.remove('show');
+        }
+
+        async function submitFeedback() {
+            const subject = document.getElementById('feedbackSubject').value.trim();
+            const body = document.getElementById('feedbackBody').value.trim();
+            if (!subject && !body) { showToast('請填寫主旨或內文'); return; }
+            document.getElementById('feedbackModalOverlay').classList.remove('show');
+            await postFeedback({ type: 'feedback', subject, body });
+            showToast('感謝你的回饋！');
         }
 
         // Hover 3 秒顯示詞語注音/拼音
