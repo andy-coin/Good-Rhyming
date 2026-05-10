@@ -278,6 +278,32 @@
             margin-top: 8px;
             font-weight: 300;
         }
+        .polyphonic-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-left: 12px;
+            align-items: center;
+        }
+        .polyphonic-chips-label {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            margin-right: 2px;
+        }
+        .poly-chip {
+            padding: 2px 10px;
+            border-radius: 20px;
+            border: 1.5px solid var(--border);
+            font-size: 0.82rem;
+            cursor: pointer;
+            background: transparent;
+            color: var(--text-primary);
+            font-family: 'Noto Sans TC', 'JetBrains Mono', sans-serif;
+            transition: border-color 0.15s, background 0.15s, color 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .poly-chip:hover { border-color: #667eea; }
+        .poly-chip.active { background: #667eea; border-color: #667eea; color: #fff; }
         
         .options {
             display: flex;
@@ -442,6 +468,10 @@
         .settings-color-section {
             display: none;
         }
+        /* 桌面：隱藏設定面板內的存檔讀取（已在 header 顯示）*/
+        .settings-saveload { display: none; }
+        /* 桌面：隱藏設定面板內的回報按鈕 */
+        .settings-feedback-btn { display: none; }
 
         .results-section {
             padding: 30px;
@@ -1854,6 +1884,9 @@
             .color-panel {
                 display: none !important;
             }
+            /* 手機：顯示設定面板內的存檔讀取、回報按鈕 */
+            .settings-saveload { display: flex; }
+            .settings-feedback-btn { display: block; }
             
             .controls { margin-top: 10px; gap: 10px; }
 
@@ -2273,10 +2306,11 @@
                 <div class="settings-color-section" style="margin-top:12px">
                     <div style="font-size:0.78rem; color:var(--text-secondary);">Groq 已整合，無需填入 Key。</div>
                 </div>
-                <div class="settings-saveload" style="display:flex;gap:8px;margin-top:4px;">
+                <div class="settings-saveload" style="gap:8px;margin-top:4px;">
                     <button class="save-load-btn" style="flex:1;text-align:center" onclick="exportSession();closeSettingsOverlay({target:document.getElementById('settingsOverlay')})" title="匯出">💾 存檔</button>
                     <button class="save-load-btn" style="flex:1;text-align:center" onclick="document.getElementById('importFileInput').click();closeSettingsOverlay({target:document.getElementById('settingsOverlay')})" title="讀取">📂 讀取</button>
                 </div>
+                <button class="settings-feedback-btn save-load-btn" style="width:100%;text-align:center;margin-top:4px;" onclick="closeSettingsOverlay({target:document.getElementById('settingsOverlay')});openFeedbackModal()">✉️ 回報 / 意見</button>
                 <button class="reset-color" onclick="resetColors()" >重設顏色!</button>
             </div>
         </div>
@@ -2285,10 +2319,6 @@
 
     <!-- 手機底部 Tab 導覽列 -->
     <div class="mobile-tab-bar" id="mobileTabBar">
-        <button class="mtab-btn active" id="mtab-search" onclick="mobileTab('search')">
-            <span class="mtab-icon">🔍</span>
-            <span>搜尋</span>
-        </button>
         <button class="mtab-btn" id="mtab-lyrics" onclick="mobileTab('lyrics')">
             <span class="mtab-icon">📝</span>
             <span>歌詞</span>
@@ -2308,6 +2338,13 @@
         <div class="word-ctx-item" onclick="wordCtxReport('notExist')">❓ 詞不存在</div>
         <div class="word-ctx-item" onclick="wordCtxReport('duplicate')">🔁 重複出現</div>
         <div class="word-ctx-item" onclick="wordCtxReport('obscure')">📦 極度冷僻</div>
+    </div>
+
+    <div class="word-ctx-menu" id="polyChipCtxMenu">
+        <div class="word-ctx-menu-title" id="polyChipCtxTitle">—</div>
+        <div class="word-ctx-item" onclick="polyChipReport('wrongReading')">🔤 讀音錯誤</div>
+        <div class="word-ctx-item" onclick="polyChipReport('obscure')">📦 極度冷僻</div>
+        <div class="word-ctx-item" onclick="polyChipReport('missingReading')">➕ 缺少讀音</div>
     </div>
 
     <div class="feedback-modal-overlay" id="feedbackModalOverlay" onclick="closeFeedbackModal(event)">
@@ -3144,6 +3181,74 @@
         let searchedTerms = [];
         let hasCustomTextColor = false;
         let lastTarget = '';
+
+        // ===== 破音字讀音顯示 =====
+        let polyphonicsOrderMap = null;  // Map<char, string[]>，從 破音字列表.txt 載入
+        let _polyphonic = { char: null, reading: null };  // 目前選定的破音字讀音
+
+        const _TONE_MARKS = ['', 'ˊ', 'ˇ', 'ˋ', '˙'];
+
+        async function loadPolyphonicsOrder() {
+            if (polyphonicsOrderMap) return;
+            try {
+                const data = await fetch('data/polyphonic-order.json').then(r => r.json());
+                polyphonicsOrderMap = new Map(Object.entries(data));
+            } catch(e) {
+                polyphonicsOrderMap = new Map();
+            }
+        }
+
+        function getCharAllReadings(char) {
+            const infos = charInfo[char];
+            if (!infos) return [];
+            const seen = new Set();
+            const all = [];
+            for (const {zhuyin, tone} of infos) {
+                const full = zhuyin + _TONE_MARKS[tone - 1];
+                if (!seen.has(full)) { seen.add(full); all.push(full); }
+            }
+            if (polyphonicsOrderMap && polyphonicsOrderMap.has(char)) {
+                const order = polyphonicsOrderMap.get(char);
+                const result = order.filter(r => seen.has(r));
+                for (const r of all) { if (!result.includes(r)) result.push(r); }
+                return result;
+            }
+            return all;
+        }
+
+        function isPolyphonic(char) {
+            return chineseDict[char] && chineseDict[char].length > 1;
+        }
+
+        function renderPolyphonicChips(char) {
+            // 先清掉上一次的
+            const old = document.getElementById('polyphonicChips');
+            if (old) old.remove();
+
+            if (!char || !isPolyphonic(char)) return;
+            const readings = getCharAllReadings(char);
+            if (readings.length <= 1) return;
+
+            const header = document.querySelector('.results-header');
+            if (!header) return;
+
+            const active = (_polyphonic.char === char && _polyphonic.reading) ? _polyphonic.reading : readings[0];
+            const container = document.createElement('div');
+            container.id = 'polyphonicChips';
+            container.className = 'polyphonic-chips';
+            container.innerHTML =
+                '<span class="polyphonic-chips-label">破音字：</span>' +
+                readings.map(r =>
+                    `<button class="poly-chip${r === active ? ' active' : ''}" data-char="${char}" data-reading="${r}" onclick="selectPolyphonicReading('${char}','${r}')">${r}</button>`
+                ).join('');
+            header.appendChild(container);
+        }
+
+        function selectPolyphonicReading(char, reading) {
+            _polyphonic = { char, reading };
+            renderPolyphonicChips(char);
+            updateAIRhymeDisplay(document.getElementById('searchInput').value);
+        }
         let phone = window.innerWidth <= 440;
         let MzoomScale = 100;
         let MzoomBaseRatio = 1.0;
@@ -3882,8 +3987,8 @@
             const rp = document.getElementById('rightPanel');
             const bd = document.getElementById('mobileBackdrop');
             // 再按同一個 tab → toggle 關閉
-            if (tab === 'lyrics' && !lp.classList.contains('collapsed')) tab = 'search';
-            else if (tab === 'ai' && !rp.classList.contains('collapsed')) tab = 'search';
+            if (tab === 'lyrics' && !lp.classList.contains('collapsed')) tab = 'none';
+            else if (tab === 'ai' && !rp.classList.contains('collapsed')) tab = 'none';
             // 先全部收起
             lp.classList.add('collapsed');
             rp.classList.add('collapsed');
@@ -3896,7 +4001,7 @@
                 if (bd) bd.classList.add('show');
                 //loadWordlist();
             }
-            ['search','lyrics','ai'].forEach(t => {
+            ['lyrics','ai'].forEach(t => {
                 const btn = document.getElementById(`mtab-${t}`);
                 if (btn) btn.classList.toggle('active', t === tab);
             });
@@ -3999,7 +4104,19 @@
                             currentRhymes.push({ char, zhuyin: '', initial: '', rhyme: '', familyLabel: '', notFound: true });
                             continue;
                         }
-                        zhuyin = zhuyins[0];
+                        // 破音字讀音選擇優先順序：
+                        // 1. 使用者點選的 chip（_polyphonic）
+                        // 2. polyphonicsOrderMap 定義的主要讀音（第一個）
+                        // 3. dict 第一個（fallback）
+                        if (_polyphonic.char === char && _polyphonic.reading) {
+                            const base = _polyphonic.reading.replace(/[ˊˇˋ˙]$/, '');
+                            zhuyin = zhuyins.includes(base) ? base : zhuyins[0];
+                        } else if (polyphonicsOrderMap && polyphonicsOrderMap.has(char)) {
+                            const primaryBase = polyphonicsOrderMap.get(char)[0].replace(/[ˊˇˋ˙]$/, '');
+                            zhuyin = zhuyins.includes(primaryBase) ? primaryBase : zhuyins[0];
+                        } else {
+                            zhuyin = zhuyins[0];
+                        }
                     }
                     const initial = getZhuyinInitial(zhuyin);
                     const rhyme = getZhuyinRhyme(zhuyin);
@@ -4469,7 +4586,7 @@
                 const req = currentRhymes[0];
                 if (rhymeMode === 'rhyme') {
                     const reqFamilyId = RHYME_TO_FAMILY[req.rhyme];
-                    if (!reqFamilyId) return false;
+                    if (reqFamilyId === undefined) return false;
                     return infos.some(info => RHYME_TO_FAMILY[info.zhuyin] === reqFamilyId);
                 } else {
                     if (!req.initial) return false;
@@ -4494,7 +4611,7 @@
 
         // 取得詞語的注音（或拼音）加聲調，供 hover tooltip 顯示
         function getWordPhoneticDisplay(word) {
-            const toneMarks = { 1: '', 2: 'ˊ', 3: 'ˇ', 4: 'ˋ', 5: '˙' };
+            const toneMarks = { 1: '¯', 2: 'ˊ', 3: 'ˇ', 4: 'ˋ', 5: '˙' };
             const usePinyin = lastSearchType === 'pinyin';
             const stored = wordPhoneticMap.get(word);
             const syllables = stored ? stored.split(' ') : [];
@@ -5248,24 +5365,35 @@
                 document.getElementById('aboutOverlay').classList.remove('show');
             }
         }
+        function _getSearchSingleChar(val) {
+            const chars = [...val.trim()].filter(c => /[一-鿿]/.test(c));
+            return chars.length === 1 ? chars[0] : null;
+        }
+
+        function _handleSearch(val) {
+            const char = _getSearchSingleChar(val);
+            // 換字時重置破音字選擇
+            if (char !== _polyphonic.char) _polyphonic = { char: null, reading: null };
+            const results = searchRhyme(val);
+            displayResults(results);
+            updateAIRhymeDisplay(val);
+            renderPolyphonicChips(char);
+        }
+
         //標準 input 事件
         searchInputEl.addEventListener('input', (e) => {
             // 如果正在輸入法組字中（如注音輸入法），跳過
             //if (e.isComposing) return;
             selectedChars.clear();
             updateSelectedCharsHint();
-            const results = searchRhyme(e.target.value);
-            displayResults(results);
-            updateAIRhymeDisplay(e.target.value);
+            _handleSearch(e.target.value);
         });
 
         // 輸入法組字完成事件（支援手機注音/拼音輸入法）
         searchInputEl.addEventListener('compositionend', (e) => {
-            const results = searchRhyme(e.target.value);
             selectedChars.clear();
             updateSelectedCharsHint();
-            displayResults(results);
-            updateAIRhymeDisplay(e.target.value);
+            _handleSearch(e.target.value);
         });
         
         // 確保手機上點擊搜尋框能正確取得焦點
@@ -5490,6 +5618,7 @@
         rhymeDict = window._rhymeDictData || {};
         loadDictOverrides();
         buildIndex();
+        loadPolyphonicsOrder(); // 背景載入破音字讀音順序表
 
         // 手機版（≤440px）：將 batch panel 移入搜尋區域
         if (!!phone) {
@@ -5517,10 +5646,25 @@
         const _ctxMenu = document.getElementById('wordCtxMenu');
         function _hideCtxMenu() { _ctxMenu.classList.remove('show'); }
 
+        // 破音字 chip 回報選單
+        let _polyCtxChar = '', _polyCtxReading = '';
+        const _polyCtxMenu = document.getElementById('polyChipCtxMenu');
+        function _hidePolyCtxMenu() { _polyCtxMenu.classList.remove('show'); }
+
+        function _showPolyCtxMenu(char, reading, x, y) {
+            _polyCtxChar = char;
+            _polyCtxReading = reading;
+            document.getElementById('polyChipCtxTitle').textContent = `「${char}」${reading}`;
+            _polyCtxMenu.style.left = Math.min(x, window.innerWidth - 160) + 'px';
+            _polyCtxMenu.style.top = Math.min(y, window.innerHeight - 100) + 'px';
+            _polyCtxMenu.classList.add('show');
+        }
+
         window.addEventListener('resize', syncCenterPanel);
-        document.addEventListener('click', _hideCtxMenu);
+        document.addEventListener('click', () => { _hideCtxMenu(); _hidePolyCtxMenu(); });
         document.addEventListener('contextmenu', e => {
             if (!e.target.closest('.word-ctx-menu') && !e.target.closest('.ai-word-card')) _hideCtxMenu();
+            if (!e.target.closest('.word-ctx-menu') && !e.target.closest('.poly-chip')) _hidePolyCtxMenu();
         });
 
         function wordCtxReport(type) {
@@ -5529,6 +5673,51 @@
             postFeedback({ type: 'word-report', word: _ctxWord, reportType: labels[type] });
             showToast(`已回報「${_ctxWord}」— ${labels[type]}`);
         }
+
+        function polyChipReport(type) {
+            _hidePolyCtxMenu();
+            if (type === 'missingReading') {
+                document.getElementById('feedbackSubject').value = `「${_polyCtxChar}」缺少讀音`;
+                document.getElementById('feedbackBody').value = '';
+                document.getElementById('feedbackModalOverlay').classList.add('show');
+                setTimeout(() => document.getElementById('feedbackBody').focus(), 50);
+            } else {
+                const labels = { wrongReading: '讀音錯誤', obscure: '極度冷僻' };
+                postFeedback({ type: 'char-reading-report', char: _polyCtxChar, reading: _polyCtxReading, reportType: labels[type] });
+                showToast(`已回報「${_polyCtxChar}」${_polyCtxReading} — ${labels[type]}`);
+            }
+        }
+
+        // 破音字 chip：右鍵（桌面）+ 長按（手機）— 用 document 委派，因為 chips 是動態元素
+        document.addEventListener('contextmenu', e => {
+            const chip = e.target.closest('.poly-chip');
+            if (!chip) return;
+            e.preventDefault();
+            _showPolyCtxMenu(chip.dataset.char, chip.dataset.reading, e.clientX, e.clientY);
+        });
+        let _polyLongPressTimer = null, _polyLongPressMoved = false;
+        document.addEventListener('touchstart', e => {
+            const chip = e.target.closest('.poly-chip');
+            if (!chip) return;
+            _polyLongPressMoved = false;
+            _polyLongPressTimer = setTimeout(() => {
+                if (_polyLongPressMoved) return;
+                const touch = e.touches[0];
+                _showPolyCtxMenu(chip.dataset.char, chip.dataset.reading, touch.clientX, touch.clientY);
+            }, 500);
+        }, { passive: true });
+        document.addEventListener('touchmove', e => {
+            if (e.target.closest('.poly-chip')) {
+                _polyLongPressMoved = true;
+                clearTimeout(_polyLongPressTimer);
+            }
+        }, { passive: true });
+        document.addEventListener('touchend', e => {
+            if (e.target.closest('.poly-chip')) clearTimeout(_polyLongPressTimer);
+        }, { passive: true });
+        document.addEventListener('touchcancel', e => {
+            if (e.target.closest('.poly-chip')) clearTimeout(_polyLongPressTimer);
+        }, { passive: true });
 
         async function postFeedback(data) {
             try {
@@ -5582,6 +5771,32 @@
             _ctxMenu.style.top = y + 'px';
             _ctxMenu.classList.add('show');
         });
+
+        // 手機長按觸發回報選單
+        let _longPressTimer = null;
+        let _longPressMoved = false;
+        _aiWordsCt.addEventListener('touchstart', e => {
+            const card = e.target.closest('.ai-word-card');
+            if (!card) return;
+            _longPressMoved = false;
+            _longPressTimer = setTimeout(() => {
+                if (_longPressMoved) return;
+                _ctxWord = card.dataset.word || card.textContent.replace('AI','').trim();
+                document.getElementById('wordCtxTitle').textContent = `「${_ctxWord}」`;
+                const touch = e.touches[0];
+                const x = Math.min(touch.clientX, window.innerWidth - 160);
+                const y = Math.min(touch.clientY, window.innerHeight - 140);
+                _ctxMenu.style.left = x + 'px';
+                _ctxMenu.style.top = y + 'px';
+                _ctxMenu.classList.add('show');
+            }, 500);
+        }, { passive: true });
+        _aiWordsCt.addEventListener('touchmove', () => {
+            _longPressMoved = true;
+            clearTimeout(_longPressTimer);
+        }, { passive: true });
+        _aiWordsCt.addEventListener('touchend', () => clearTimeout(_longPressTimer), { passive: true });
+        _aiWordsCt.addEventListener('touchcancel', () => clearTimeout(_longPressTimer), { passive: true });
         _aiWordsCt.addEventListener('mouseover', e => {
             const card = e.target.closest('.ai-word-card');
             if (!card || !card.dataset.word) return;
@@ -5594,7 +5809,7 @@
                 _phoneticTooltip.style.left = (rect.left + rect.width / 2) + 'px';
                 _phoneticTooltip.style.top = rect.top + 'px';
                 _phoneticTooltip.classList.add('show');
-            }, 3000);
+            }, 2000);
         });
         _aiWordsCt.addEventListener('mouseout', e => {
             const card = e.target.closest('.ai-word-card');
