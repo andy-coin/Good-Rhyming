@@ -3859,6 +3859,7 @@
                     if (RHYME_TO_FAMILY[lastRhyme] !== RHYME_TO_FAMILY[rhymes[0].rhyme]) match = false;
                 } else {
                     for (let i = 0; i < rhymes.length; i++) {
+                        if (rhymes[i].isWild) continue;
                         if (rhymes[i].notFound) continue;
                         if (RHYME_TO_FAMILY[getZhuyinRhyme(syllables[i])] !== RHYME_TO_FAMILY[rhymes[i].rhyme]) {
                             match = false; break;
@@ -3905,6 +3906,7 @@
                 if (syllables.length !== targetLen) continue;
                 let match = true;
                 for (let i = 0; i < rhymes.length; i++) {
+                    if (rhymes[i].isWild) continue;
                     if (rhymes[i].notFound) continue;
                     const zy = syllables[i];
                     const init = getZhuyinInitial(zy);
@@ -4053,11 +4055,12 @@
                 updateModeButtonLabels();
                 return;
             }
-            // 取所有 CJK 字元，依出現順序保留（不去重，多押需要每個位置的資訊）
-            const chars = [...trimmed].filter(c => /[一-鿿]/.test(c));
+            // 取所有 CJK 字元與萬用字元 *，依出現順序保留
+            const chars = [...trimmed].filter(c => /[一-鿿]/.test(c) || c === '*');
+            const hasCJK = chars.some(c => c !== '*');
             currentRhymes = [];
 
-            if (chars.length === 0) {
+            if (!hasCJK) {
                 // 注音/拼音直接搜尋：從 searchedTerms 建立 currentRhymes
                 const seen = new Set();
                 for (const term of searchedTerms) {
@@ -4097,6 +4100,10 @@
 
                 for (let i = 0; i < chars.length; i++) {
                     const char = chars[i];
+                    if (char === '*') {
+                        currentRhymes.push({ char: '*', isWild: true, zhuyin: '', initial: '', rhyme: '', familyLabel: '' });
+                        continue;
+                    }
                     let zhuyin;
                     if (wordlistSyllables) {
                         zhuyin = wordlistSyllables[i];
@@ -4156,13 +4163,16 @@
             const usePinyin = lastSearchType === 'pinyin';
             const fmt = zy => usePinyin ? zhuyinToPinyin(zy) : zy;
             if (rhymeMode === 'rhyme') {
-                const parts = currentRhymes.map(r => r.notFound
-                    ? `<span class="rhyme-not-found" title="${r.char} 未收錄於字庫">∅<button class="report-char-btn" onclick="reportMissingChar('${r.char}')">回報</button></span>`
-                    : `<span class="rhyme-label">${fmt(r.rhyme)}</span><span style="font-size:0.72rem;color:var(--text-secondary)"> (${fmt(r.zhuyin)})</span>`
+                const parts = currentRhymes.map(r => r.isWild
+                    ? `<span class="rhyme-label" style="opacity:0.4">＊</span>`
+                    : r.notFound
+                        ? `<span class="rhyme-not-found" title="${r.char} 未收錄於字庫">∅<button class="report-char-btn" onclick="reportMissingChar('${r.char}')">回報</button></span>`
+                        : `<span class="rhyme-label">${fmt(r.rhyme)}</span><span style="font-size:0.72rem;color:var(--text-secondary)"> (${fmt(r.zhuyin)})</span>`
                 );
                 display.innerHTML = '母音　' + parts.join('　');
             } else {
                 const parts = currentRhymes.map(r => {
+                    if (r.isWild) return `<span class="rhyme-label" style="opacity:0.4">＊</span>`;
                     if (r.notFound) return `<span class="rhyme-not-found" title="${r.char} 未收錄於字庫">∅<button class="report-char-btn" onclick="reportMissingChar('${r.char}')">回報</button></span>`;
                     return r.initial
                         ? `<span class="rhyme-label">${fmt(r.initial)}</span>`
@@ -4370,7 +4380,7 @@
         }
 
         function updateModeButtonLabels() {
-            const isSingle = currentRhymes.length === 1;
+            const isSingle = currentRhymes.length === 1 && !currentRhymes[0]?.isWild;
             const r = document.getElementById('modeRhyme');
             const i = document.getElementById('modeInitial');
             if (r) r.textContent = isSingle ? '押字尾' : '押母音';
@@ -4598,6 +4608,7 @@
             } else {
                 if (word.length !== currentRhymes.length) return false;
                 for (let i = 0; i < word.length; i++) {
+                    if (currentRhymes[i]?.isWild) continue;
                     const infos = charInfo[word[i]] || [];
                     if (!infos.length) return false;
                     const req = currentRhymes[i];
@@ -4773,7 +4784,7 @@
                 直接輸出詞語，頓號「、」分隔，不要說明或編號。`;
 
             } else if (rhymeMode === 'rhyme') {
-                const newBatch = currentRhymes.length === 1
+                const newBatch = (currentRhymes.length === 1 && !currentRhymes[0]?.isWild)
                     ? getWordlistCandidatesSingle()
                     : getWordlistCandidates(currentRhymes, currentRhymes.length);
                 if (newBatch === null) {
@@ -4806,7 +4817,7 @@
 
             } else {
                 // 子音押
-                const newBatch = currentRhymes.length === 1
+                const newBatch = (currentRhymes.length === 1 && !currentRhymes[0]?.isWild)
                     ? getWordlistCandidatesSingle()
                     : getWordlistCandidatesInitial(currentRhymes, currentRhymes.length);
                 if (newBatch === null) {
