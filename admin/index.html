@@ -194,25 +194,39 @@ body {
   <div class="empty">輸入 USER_REPORT_KEY 後按「重新載入」</div>
 </div>
 
-<!-- Missing reading modal -->
-<div class="modal-overlay" id="missingModal">
+<style>
+/* edit panel & action buttons 補強 */
+.edit-panel { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.edit-panel input { flex: 1; min-width: 180px; padding: 6px 10px; border-radius: 8px;
+  border: 1.5px solid var(--border); background: var(--card-bg); color: var(--text-primary);
+  font-family: inherit; font-size: 0.9rem; }
+.edit-panel input:focus { outline: none; border-color: #667eea; }
+.btn-hide   { background: rgba(102,126,234,.18); color: #5b6cd1; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
+.btn-remove { background: rgba(229,62,62,.18); color: #c53030; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
+.btn-fix    { background: rgba(237,137,54,.18); color: #c05621; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
+.btn-add    { background: #48bb78; color: #fff; padding: 5px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
+.btn-note   { background: rgba(124,58,237,.18); color: #7c3aed; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
+.action-preview.note { color: #7c3aed; border-color: rgba(124,58,237,.3); background: rgba(124,58,237,.08); }
+.modify-arrow { color: var(--text-muted); margin: 0 6px; }
+</style>
+
+<!-- 通用「人工新增」modal（缺字 / 缺少讀音）-->
+<div class="modal-overlay" id="addModal">
   <div class="modal">
-    <h3>➕ 缺少讀音 — 人工記錄</h3>
-    <label>字</label>
-    <input id="mChar" readonly>
-    <label>回報者說明</label>
-    <textarea id="mNote" rows="3" readonly></textarea>
-    <label>要新增的讀音（注音，例如 ㄏㄜˊ）</label>
-    <input id="mReading" placeholder="請填入正確注音">
-    <label>放入分級</label>
-    <select id="mTier" style="width:100%;padding:8px 12px;border:1.5px solid #d1d5db;border-radius:8px;margin-bottom:14px;font-size:0.9rem;">
+    <h3 id="addModalTitle">➕ 新增</h3>
+    <label id="addModalSubjectLabel">主體</label>
+    <input id="addSubject">
+    <label id="addModalContentLabel">內容</label>
+    <input id="addContent" placeholder="">
+    <label>分級</label>
+    <select id="addTier">
       <option value="common">常用</option>
       <option value="normal" selected>一般</option>
       <option value="rare">冷僻</option>
     </select>
     <div class="modal-actions">
-      <button class="btn" style="background:#f3f4f6;color:#555" onclick="closeMissingModal()">取消</button>
-      <button class="btn" style="background:#667eea;color:#fff" onclick="confirmMissing()">確認記錄</button>
+      <button class="btn btn-dismiss" onclick="closeAddModal()">取消</button>
+      <button class="btn" style="background:#667eea;color:#fff" onclick="confirmAdd()">確認新增</button>
     </div>
   </div>
 </div>
@@ -222,6 +236,21 @@ body {
 const WORKER_URL = 'https://lucky-hawaii.is3000dollar.workers.dev';
 const KEY_LS = 'haoYunQi_admin_key';
 const THEME_LS = 'haoYunQi_admin_theme';
+
+// ── Action 動詞 ↔ 中文 ──
+const ACTION_LABEL = {
+  hide_char_reading:  a => `🙈 隱藏「${a.char}」讀音 ${a.reading}`,
+  remove_char_reading:a => `🗑 移除「${a.char}」讀音 ${a.reading}`,
+  fix_char_reading:   a => `✏️ 修正「${a.char}」${a.old_reading} → ${a.new_reading}`,
+  manual_add_reading: a => `➕ 新增「${a.char}」讀音 ${a.new_reading}（${tierLabel(a.to_tier)}）`,
+  hide_word:          a => `🙈 隱藏「${a.word}」`,
+  remove_word:        a => `🗑 移除「${a.word}」`,
+  fix_word_reading:   a => `✏️ 修正「${a.word}」注音 → ${a.new_z}`,
+  manual_add_word:    a => `➕ 新增詞「${a.word}」（${a.z || '無注音'} / ${tierLabel(a.tier)}）`,
+  accept_ai_word:     a => `✅ 收錄 AI 建議詞「${a.word}」`,
+  modify_ai_word:     a => `✏️ AI 建議詞「${a.original}」改為「${a.modified}」收錄`,
+  note:               a => `📝 備註：${a.text}`,
+};
 
 // ── Theme ──
 function applyTheme(t) {
@@ -238,8 +267,9 @@ applyTheme(localStorage.getItem(THEME_LS) || 'light');
 
 // ── State ──
 let reports = [];          // [{kvKey, type, status, action, ...}]
-let missingTarget = null;
-let busyKeys = new Set();  // kvKey 進行中（避免重複點擊）
+let busyKeys = new Set();  // kvKey 進行中
+let _editing = null;       // {kvKey, op, label, placeholder, defaultValue}
+let _addModalCtx = null;   // {kvKey, op}（add modal 的目標）
 
 const TONE_MARK_TO_DIGIT = { 'ˊ': '2', 'ˇ': '3', 'ˋ': '4', '˙': '5' };
 function readingToDictKey(reading) {
@@ -270,7 +300,10 @@ async function fetchReports() {
     if (res.status === 403) { showError('密鑰錯誤（403）'); return; }
     if (!res.ok) { showError(`載入失敗：HTTP ${res.status}`); return; }
     reports = await res.json();
-    reports.forEach((r, i) => { if (!r.kvKey) r.kvKey = `__no_key_${i}`; });
+    reports.forEach((r, i) => {
+      if (!r.kvKey) r.kvKey = `__no_key_${i}`;
+      normalizeAISuggest(r);
+    });
     render();
   } catch(e) {
     showError(`網路錯誤：${e.message}`);
@@ -347,11 +380,13 @@ function render() {
   setStats(`共 ${total} 筆 · 待審 ${pending} · 已確認 ${agreed} · 已封存 ${archivedTotal}`);
   document.getElementById('exportBtn').disabled = agreed === 0;
 
-  const feedbacks = visible.filter(r => r.type === 'feedback');
-  const wordReps  = visible.filter(r => r.type === 'word-report');
+  const aiSugg    = visible.filter(r => r.type === 'ai-word-suggest');
   const readReps  = visible.filter(r => r.type === 'char-reading-report');
+  const wordReps  = visible.filter(r => r.type === 'word-report');
+  const feedbacks = visible.filter(r => r.type === 'feedback');
 
   let html = '';
+  if (aiSugg.length)    html += section('🌟 AI 建議收錄', aiSugg, renderAISuggestCard);
   if (readReps.length)  html += section('🔤 讀音回報', readReps, renderReadingCard);
   if (wordReps.length)  html += section('🃏 字卡回報', wordReps, renderWordCard);
   if (feedbacks.length) html += section('📬 一般回饋', feedbacks, renderFeedbackCard);
@@ -362,208 +397,285 @@ function render() {
 
 function section(title, items, cardFn) {
   const pending = items.filter(r => !r.status).length;
-  return `
-    <div>
-      <div class="section-title">
-        ${title}
-        <span class="section-badge">${items.length} 筆 · 待審 ${pending}</span>
-      </div>
+  return `<div>
+      <div class="section-title">${title}<span class="section-badge">${items.length} 筆 · 待審 ${pending}</span></div>
       ${items.map(cardFn).join('')}
     </div>`;
 }
 
 function fmtTime(ts) {
   if (!ts) return '';
-  try {
-    const d = new Date(ts);
-    return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
-  } catch { return ts; }
+  try { return new Date(ts).toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }); }
+  catch { return ts; }
 }
 
-// ── Reading card ──
-function renderReadingCard(r) {
+// ── Action preview 文字 ──
+function previewFor(r) {
   const status = r.status || 'pending';
-  const isMissing = r.reportType === '缺少讀音';
-  const a = r.action;
-
-  let actionPreview = '';
-  if (status === 'agreed' && a) {
-    if (a.type === 'move_char_tier')
-      actionPreview = `✓ 將「${a.char}」[${a.dict_key}] 移至 ${tierLabel(a.to_tier)} 區`;
-    else if (a.type === 'remove_char_reading')
-      actionPreview = `✓ 移除「${a.char}」的讀音 ${a.dict_key}`;
-    else if (a.type === 'manual_review')
-      actionPreview = `✓ 人工記錄：新增讀音 ${a.new_reading || '?'} → ${tierLabel(a.to_tier)}`;
-  } else if (status === 'dismissed') {
-    actionPreview = '× 略過';
-  } else if (status === 'archived') {
-    actionPreview = '📦 已封存';
-  } else {
-    if (isMissing) actionPreview = '→ 點 Agree 填寫要新增的讀音';
-    else if (r.reportType === '讀音錯誤') actionPreview = '→ Agree = 移除此讀音';
-    else if (r.reportType === '極度冷僻') actionPreview = '→ Agree = 移至冷僻區';
+  if (status === 'agreed' && r.action) {
+    const fn = ACTION_LABEL[r.action.type];
+    return fn ? '✓ ' + fn(r.action) : '✓ ' + r.action.type;
   }
-
-  const noteText = r.body ? `<div class="card-text">${esc(r.body)}</div>` : '';
-
-  return `
-    <div class="card ${status} ${isMissing ? 'manual' : ''}">
-      <div class="card-header">
-        <span class="card-type-badge reading">讀音回報</span>
-        <span class="card-char">${esc(r.char || '')}</span>
-        <span class="card-reading">${esc(r.reading || '')}</span>
-        <span class="card-reason">${esc(r.reportType || '')}</span>
-        <span class="card-time">${fmtTime(r.ts)}</span>
-      </div>
-      ${noteText}
-      <div class="card-actions">
-        <span class="action-preview ${status}">${actionPreview}</span>
-        ${actionButtons(r)}
-      </div>
-    </div>`;
+  if (status === 'dismissed') return '× 忽略';
+  if (status === 'archived')  return '📦 已封存';
+  return '';
 }
 
-function agreeReading(kvKey) {
+// ── 通用 dispatch ──
+// op: hide / remove / fix(需要 input) / dismiss / archive / undo / addModal(缺字、缺少讀音) / accept / modify / note
+function exec(kvKey, op, payload) {
   const r = reports.find(x => x.kvKey === kvKey);
   if (!r) return;
-  if (r.reportType === '缺少讀音') {
-    missingTarget = r;
-    document.getElementById('mChar').value = r.char || '';
-    document.getElementById('mNote').value = r.body || r.subject || '';
-    document.getElementById('mReading').value = '';
-    document.getElementById('missingModal').classList.add('show');
-    return;
+  if (op === 'dismiss') return postDecision(kvKey, 'dismissed', null);
+  if (op === 'archive') return postDecision(kvKey, 'archived', null);
+  if (op === 'undo')    return postDecision(kvKey, 'pending', null);
+  const a = buildAction(r, op, payload);
+  if (!a) return;
+  postDecision(kvKey, 'agreed', a);
+}
+
+function buildAction(r, op, payload) {
+  const reading = r.reading || '';
+  const dict_key = readingToDictKey(reading);
+  switch (op) {
+    case 'hideReading':   return { type: 'hide_char_reading',   char: r.char, dict_key, reading, reason: r.reportType };
+    case 'removeReading': return { type: 'remove_char_reading', char: r.char, dict_key, reading, reason: r.reportType };
+    case 'fixReading':    return { type: 'fix_char_reading', char: r.char,
+                                   old_reading: reading, old_dict_key: dict_key,
+                                   new_reading: payload, new_dict_key: readingToDictKey(payload),
+                                   reason: r.reportType };
+    case 'hideWord':      return { type: 'hide_word',   word: r.word, reason: r.reportType };
+    case 'removeWord':    return { type: 'remove_word', word: r.word, reason: r.reportType };
+    case 'fixWord':       return { type: 'fix_word_reading', word: r.word, new_z: payload, reason: r.reportType };
+    case 'acceptAI':      return { type: 'accept_ai_word', word: r.word };
+    case 'modifyAI':      return { type: 'modify_ai_word', original: r.word, modified: r.modified || payload };
+    case 'note':          return { type: 'note', text: payload };
+    default: return null;
   }
-  const dict_key = readingToDictKey(r.reading);
+}
+
+// ── Edit panel（inline 輸入） ──
+function openEdit(kvKey, op, opts) { _editing = { kvKey, op, ...(opts||{}) }; render(); setTimeout(()=>document.getElementById('editInput')?.focus(), 30); }
+function closeEdit() { _editing = null; render(); }
+function confirmEdit() {
+  const val = document.getElementById('editInput').value.trim();
+  if (!val) { alert('請輸入內容'); return; }
+  const { kvKey, op } = _editing;
+  _editing = null;
+  exec(kvKey, op, val);
+}
+function editPanelHTML() {
+  return `<div class="edit-panel">
+    <input id="editInput" placeholder="${esc(_editing.placeholder || '')}" value="${esc(_editing.defaultValue || '')}"
+      onkeydown="if(event.key==='Enter')confirmEdit();if(event.key==='Escape')closeEdit();">
+    <button class="btn btn-agree" onclick="confirmEdit()">✓ 確認</button>
+    <button class="btn btn-dismiss" onclick="closeEdit()">取消</button>
+  </div>`;
+}
+
+// ── Add modal（缺字 / 缺少讀音 同意新增）──
+function openAddModal(kvKey, op) {
+  _addModalCtx = { kvKey, op };
+  const r = reports.find(x => x.kvKey === kvKey);
+  if (!r) return;
+  const titleEl = document.getElementById('addModalTitle');
+  const subjectLabelEl = document.getElementById('addModalSubjectLabel');
+  const subjectEl = document.getElementById('addSubject');
+  const contentLabelEl = document.getElementById('addModalContentLabel');
+  const contentEl = document.getElementById('addContent');
+  if (op === 'addReading') {
+    // r 是 feedback 類型，subject 通常為「「X」缺少讀音」
+    const charMatch = (r.subject || '').match(/「(.)」/);
+    const ch = charMatch ? charMatch[1] : '';
+    titleEl.textContent = '➕ 新增讀音';
+    subjectLabelEl.textContent = '字';
+    subjectEl.value = ch; subjectEl.readOnly = true;
+    contentLabelEl.textContent = '注音（含聲調，例：ㄏㄜˊ）';
+    contentEl.value = ''; contentEl.placeholder = 'ㄏㄜˊ';
+  } else { // addWord（缺字）
+    titleEl.textContent = '➕ 新增詞';
+    subjectLabelEl.textContent = '詞';
+    subjectEl.value = r.word || ''; subjectEl.readOnly = false;
+    contentLabelEl.textContent = '注音（每字空格分隔，例：ㄏㄠˇ ㄩㄣˋ）';
+    contentEl.value = ''; contentEl.placeholder = 'ㄏㄠˇ ㄩㄣˋ';
+  }
+  document.getElementById('addModal').classList.add('show');
+  setTimeout(() => contentEl.focus(), 30);
+}
+function closeAddModal() {
+  document.getElementById('addModal').classList.remove('show');
+  _addModalCtx = null;
+}
+async function confirmAdd() {
+  if (!_addModalCtx) return;
+  const { kvKey, op } = _addModalCtx;
+  const subj = document.getElementById('addSubject').value.trim();
+  const content = document.getElementById('addContent').value.trim();
+  const tier = document.getElementById('addTier').value;
   let action;
-  if (r.reportType === '讀音錯誤') {
-    action = { type: 'remove_char_reading', char: r.char, dict_key, reading: r.reading, reason: r.reportType };
+  if (op === 'addReading') {
+    if (!subj || !content) { alert('字 與 注音 都要填'); return; }
+    action = { type: 'manual_add_reading', char: subj,
+               new_reading: content, new_dict_key: readingToDictKey(content), to_tier: tier };
   } else {
-    action = { type: 'move_char_tier', char: r.char, dict_key, reading: r.reading, to_tier: 'rare', reason: r.reportType };
+    if (!subj) { alert('詞不可空'); return; }
+    action = { type: 'manual_add_word', word: subj, z: content, tier };
   }
-  postDecision(kvKey, 'agreed', action);
-}
-
-function closeMissingModal() {
-  document.getElementById('missingModal').classList.remove('show');
-  missingTarget = null;
-}
-
-async function confirmMissing() {
-  if (!missingTarget) return;
-  const newReading = document.getElementById('mReading').value.trim();
-  const tier = document.getElementById('mTier').value;
-  if (!newReading) { alert('請填入讀音'); return; }
-  const action = {
-    type: 'manual_review',
-    char: missingTarget.char,
-    new_reading: newReading,
-    dict_key: readingToDictKey(newReading),
-    to_tier: tier,
-    note: `「${missingTarget.char}」新增讀音 ${newReading}（${tierLabel(tier)}）`,
-    reason: '缺少讀音',
-  };
-  const kvKey = missingTarget.kvKey;
-  closeMissingModal();
+  closeAddModal();
   await postDecision(kvKey, 'agreed', action);
 }
 
-// ── Word card ──
+// ── 各類 card ──
+function btn(cls, label, onclick, dis) {
+  return `<button class="btn ${cls}" ${dis?'disabled':''} onclick="${onclick}">${label}</button>`;
+}
+function commonTrailing(r) {
+  const dis = busyKeys.has(r.kvKey);
+  return btn('btn-archive', '📦 Archive', `exec('${r.kvKey}','archive')`, dis);
+}
+function postActions(r) {
+  const dis = busyKeys.has(r.kvKey);
+  return btn('btn-undo', '↩ 還原', `exec('${r.kvKey}','undo')`, dis) + commonTrailing(r);
+}
+
+function cardShell(r, headerHtml, bodyHtml, actionsHtml) {
+  const status = r.status || 'pending';
+  const editing = _editing && _editing.kvKey === r.kvKey;
+  return `<div class="card ${status}">
+    <div class="card-header">${headerHtml}<span class="card-time">${fmtTime(r.ts)}</span></div>
+    ${bodyHtml || ''}
+    <div class="card-actions">
+      <span class="action-preview ${status}">${esc(previewFor(r) || actionPlaceholder(r))}</span>
+      ${editing ? '' : actionsHtml}
+    </div>
+    ${editing ? editPanelHTML() : ''}
+  </div>`;
+}
+function actionPlaceholder(r) {
+  if (r.type === 'feedback') return '→ 已讀 / 備註';
+  if (r.type === 'ai-word-suggest') return r.action_kind === 'modify' ? '→ 同意修改後收錄 / 忽略' : '→ 同意收錄 / 忽略';
+  return '→ 選擇處理方式';
+}
+
+function renderReadingCard(r) {
+  const status = r.status || 'pending';
+  const dis = busyKeys.has(r.kvKey);
+  const k = r.kvKey;
+  let actions;
+  if (status !== 'pending') {
+    actions = postActions(r);
+  } else if (r.reportType === '讀音錯誤') {
+    actions = btn('btn-hide','🙈 隱藏',`exec('${k}','hideReading')`,dis)
+            + btn('btn-remove','🗑 移除',`exec('${k}','removeReading')`,dis)
+            + btn('btn-fix','✏️ 修正',`openEdit('${k}','fixReading',{placeholder:'新注音(含聲調) 例：ㄏㄜˊ',defaultValue:'${esc(r.reading||'')}'})`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
+  } else if (r.reportType === '極度冷僻') {
+    actions = btn('btn-hide','🙈 隱藏',`exec('${k}','hideReading')`,dis)
+            + btn('btn-remove','🗑 完全移除',`exec('${k}','removeReading')`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
+  } else {
+    actions = btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis) + commonTrailing(r);
+  }
+  const noteText = r.body ? `<div class="card-text">${esc(r.body)}</div>` : '';
+  const header = `<span class="card-type-badge reading">讀音回報</span>
+      <span class="card-char">${esc(r.char || '')}</span>
+      <span class="card-reading">${esc(r.reading || '')}</span>
+      <span class="card-reason">${esc(r.reportType || '')}</span>`;
+  return cardShell(r, header, noteText, actions);
+}
+
 function renderWordCard(r) {
   const status = r.status || 'pending';
-  const a = r.action;
-
-  let actionPreview = '';
-  if (status === 'agreed' && a) {
-    if (a.type === 'suppress_word') actionPreview = `✓ 將「${a.word}」加入抑制清單`;
-    else actionPreview = '✓ 已記錄';
-  } else if (status === 'dismissed') {
-    actionPreview = '× 略過';
-  } else if (status === 'archived') {
-    actionPreview = '📦 已封存';
+  const dis = busyKeys.has(r.kvKey);
+  const k = r.kvKey;
+  const rt = r.reportType || '';
+  let actions;
+  if (status !== 'pending') {
+    actions = postActions(r);
+  } else if (rt === '押韻錯誤' || rt === '詞不存在') {
+    actions = btn('btn-hide','🙈 隱藏',`exec('${k}','hideWord')`,dis)
+            + btn('btn-remove','🗑 移除',`exec('${k}','removeWord')`,dis)
+            + btn('btn-fix','✏️ 修正注音',`openEdit('${k}','fixWord',{placeholder:'每字注音空格分隔 例：ㄏㄠˇ ㄩㄣˋ'})`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
+  } else if (rt === '極度冷僻') {
+    actions = btn('btn-hide','🙈 隱藏',`exec('${k}','hideWord')`,dis)
+            + btn('btn-remove','🗑 完全移除',`exec('${k}','removeWord')`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
+  } else if (rt === '重複出現') {
+    actions = btn('btn-dismiss','忽略（執行時問題）',`exec('${k}','dismiss')`,dis) + commonTrailing(r);
+  } else if (rt === '缺字') {
+    // modal 中可編輯詞 + 注音 + 分級，「同意」與「更改」視為同一動作
+    actions = btn('btn-add','✓ 新增（可編輯）',`openAddModal('${k}','addWord')`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
   } else {
-    if (r.reportType === '重複出現') actionPreview = '→ 執行時問題，不寫入 DB';
-    else actionPreview = '→ Agree = 加入抑制清單';
+    actions = btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis) + commonTrailing(r);
   }
-
-  return `
-    <div class="card ${status}">
-      <div class="card-header">
-        <span class="card-type-badge word">字卡回報</span>
-        <span class="card-word">${esc(r.word || '')}</span>
-        <span class="card-reason">${esc(r.reportType || '')}</span>
-        <span class="card-time">${fmtTime(r.ts)}</span>
-      </div>
-      <div class="card-actions">
-        <span class="action-preview ${status}">${actionPreview}</span>
-        ${actionButtons(r)}
-      </div>
-    </div>`;
+  const header = `<span class="card-type-badge word">字卡回報</span>
+      <span class="card-word">${esc(r.word || '')}</span>
+      <span class="card-reason">${esc(r.reportType || '')}</span>`;
+  return cardShell(r, header, '', actions);
 }
 
-function agreeWord(kvKey) {
-  const r = reports.find(x => x.kvKey === kvKey);
-  if (!r) return;
-  if (r.reportType === '重複出現') { dismiss(kvKey); return; }
-  const action = { type: 'suppress_word', word: r.word, reason: r.reportType };
-  postDecision(kvKey, 'agreed', action);
-}
-
-// ── Feedback card ──
 function renderFeedbackCard(r) {
   const status = r.status || 'pending';
-  let preview;
-  if (status === 'dismissed') preview = '× 已讀';
-  else if (status === 'archived') preview = '📦 已封存';
-  else preview = '→ 純閱讀，無自動動作';
-
-  return `
-    <div class="card ${status}">
-      <div class="card-header">
-        <span class="card-type-badge feedback">一般回饋</span>
-        <span style="font-weight:600;font-size:.9rem">${esc(r.subject || '（無主旨）')}</span>
-        <span class="card-time">${fmtTime(r.ts)}</span>
-      </div>
-      ${r.body ? `<div class="card-text">${esc(r.body)}</div>` : ''}
-      <div class="card-actions">
-        <span class="action-preview ${status}">${preview}</span>
-        ${actionButtonsForFeedback(r)}
-      </div>
-    </div>`;
-}
-
-// ── 共用按鈕 ──
-function actionButtons(r) {
-  const status = r.status || 'pending';
-  const dis = busyKeys.has(r.kvKey) ? 'disabled' : '';
+  const dis = busyKeys.has(r.kvKey);
   const k = r.kvKey;
-  const agreeFn = r.type === 'char-reading-report' ? 'agreeReading'
-                : r.type === 'word-report' ? 'agreeWord' : '';
-  const agreeBtn   = agreeFn ? `<button class="btn btn-agree" ${dis} onclick="${agreeFn}('${k}')">✓ Agree</button>` : '';
-  const dismissBtn = `<button class="btn btn-dismiss" ${dis} onclick="dismiss('${k}')">✗ Dismiss</button>`;
-  const archiveBtn = `<button class="btn btn-archive" ${dis} onclick="archive('${k}')">📦 Archive</button>`;
-  const undoBtn    = `<button class="btn btn-undo" ${dis} onclick="undo('${k}')">↩ 還原</button>`;
-  if (status === 'pending') return agreeBtn + dismissBtn + archiveBtn;
-  return undoBtn + archiveBtn;
-}
-
-function actionButtonsForFeedback(r) {
-  const status = r.status || 'pending';
-  const busy = busyKeys.has(r.kvKey);
-  const dis = busy ? 'disabled' : '';
-  const k = r.kvKey;
-  if (status === 'pending') {
-    return `<button class="btn btn-dismiss" ${dis} onclick="dismiss('${k}')">✓ 已讀</button>`
-         + `<button class="btn btn-archive" ${dis} onclick="archive('${k}')">📦 Archive</button>`;
+  const isMissingReading = (r.subject || '').includes('缺少讀音');
+  let actions;
+  if (status !== 'pending') {
+    actions = postActions(r);
+  } else if (isMissingReading) {
+    actions = btn('btn-add','✓ 同意（新增）',`openAddModal('${k}','addReading')`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
+  } else {
+    actions = btn('btn-dismiss','✓ 已讀',`exec('${k}','dismiss')`,dis)
+            + btn('btn-note','📝 備註',`openEdit('${k}','note',{placeholder:'寫一句備註（會存進 KV，匯出時帶出來）'})`,dis)
+            + commonTrailing(r);
   }
-  return `<button class="btn btn-undo" ${dis} onclick="undo('${k}')">↩ 還原</button>`
-       + `<button class="btn btn-archive" ${dis} onclick="archive('${k}')">📦 Archive</button>`;
+  const body = r.body ? `<div class="card-text">${esc(r.body)}</div>` : '';
+  const header = `<span class="card-type-badge feedback">一般回饋</span>
+      <span style="font-weight:600;font-size:.9rem">${esc(r.subject || '（無主旨）')}</span>`;
+  return cardShell(r, header, body, actions);
 }
 
-// ── Shared decision actions ──
-function dismiss(kvKey) { postDecision(kvKey, 'dismissed', null); }
-function archive(kvKey) { postDecision(kvKey, 'archived', null); }
-function undo(kvKey)    { postDecision(kvKey, 'pending', null); }
+function renderAISuggestCard(r) {
+  const status = r.status || 'pending';
+  const dis = busyKeys.has(r.kvKey);
+  const k = r.kvKey;
+  const isModify = r.action_kind === 'modify' || (r.modified && r.modified !== r.word);
+  let actions;
+  if (status !== 'pending') {
+    actions = postActions(r);
+  } else if (isModify) {
+    actions = btn('btn-add','✓ 同意修改後收錄',`exec('${k}','modifyAI')`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
+  } else {
+    actions = btn('btn-add','✓ 同意收錄',`exec('${k}','acceptAI')`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
+  }
+  const arrow = isModify ? `<span class="modify-arrow">→</span><span class="card-word">${esc(r.modified || '')}</span>` : '';
+  const header = `<span class="card-type-badge feedback">AI 建議收錄</span>
+      <span class="card-word">${esc(r.word || '')}</span>${arrow}
+      <span class="card-reason">${isModify ? '修改後收錄' : '直接收錄'}</span>`;
+  return cardShell(r, header, '', actions);
+}
+
+// 補相容：reports 中可能有 r.action_kind 或 r.action='accept'/'modify'（從前端送的 schema）
+function normalizeAISuggest(r) {
+  if (r.type !== 'ai-word-suggest') return;
+  if (!r.action_kind && r.action && typeof r.action === 'string') {
+    r.action_kind = r.action;  // 從前端 postFeedback 來的 raw 欄位
+    delete r.action;           // 避免跟 decision.action 撞名
+  }
+}
 
 // ── Export ──
 function exportChanges() {

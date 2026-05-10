@@ -2336,10 +2336,7 @@
 
     <div class="word-ctx-menu" id="wordCtxMenu">
         <div class="word-ctx-menu-title" id="wordCtxTitle">—</div>
-        <div class="word-ctx-item" onclick="wordCtxReport('rhyme')">🎵 押韻錯誤</div>
-        <div class="word-ctx-item" onclick="wordCtxReport('notExist')">❓ 詞不存在</div>
-        <div class="word-ctx-item" onclick="wordCtxReport('duplicate')">🔁 重複出現</div>
-        <div class="word-ctx-item" onclick="wordCtxReport('obscure')">📦 極度冷僻</div>
+        <div id="wordCtxItems"></div>
     </div>
 
     <div class="word-ctx-menu" id="polyChipCtxMenu">
@@ -3251,6 +3248,12 @@
             const readings = getCharAllReadings(char);
             if (readings.length <= 1) return;
 
+            // 載入時自動採用第一順位讀音（以 polyphonic-order.json 為準），
+            // 讓字卡一進來就匹配第一個 chip（避免跟字庫插入順序不一致）
+            if (!_polyphonic.reading || _polyphonic.char !== char) {
+                _polyphonic = { char, reading: readings[0] };
+            }
+
             const header = document.querySelector('.results-header');
             if (!header) return;
 
@@ -3911,7 +3914,11 @@
             }
             */
             const all = filterWordsByRhyme(rhymes, targetLen, 1);
-            if (all.length > 0) { lastCandidatesTotal = all.length; return all; } // 移除200上限
+            if (all.length > 0) {
+                lastCandidatesTotal = all.length;
+                // 每輪最多 1000（候選池會累積，下一輪再加另一個 1000）
+                return all.length > 1000 ? all.slice(0, 1000) : all;
+            }
             lastCandidatesTotal = 0;
             return [];
         }
@@ -3958,7 +3965,10 @@
             }
             */
             const all = filterWordsByInitial(rhymes, targetLen, 1);
-            if (all.length > 0) { lastCandidatesTotal = all.length; return all; } // 移除200上限
+            if (all.length > 0) {
+                lastCandidatesTotal = all.length;
+                return all.length > 1000 ? all.slice(0, 1000) : all;
+            }
             lastCandidatesTotal = 0;
             return [];
         }
@@ -4527,7 +4537,10 @@
             const all = rhymeMode === 'rhyme'
                 ? filterWordsByRhymeSingle(searchChar, 1)
                 : filterWordsByInitialSingle(searchChar, 1);
-            if (all.length > 0) { lastCandidatesTotal = all.length; return all; } // 移除200上限
+            if (all.length > 0) {
+                lastCandidatesTotal = all.length;
+                return all.length > 1000 ? all.slice(0, 1000) : all;
+            }
             lastCandidatesTotal = 0;
             return [];
         }
@@ -4799,7 +4812,7 @@
                 const ctxBlock = contextFull ? `\n【情境與#標籤】（請重點優先參考）：${contextFull}` : '';
                 const lyricsBlock = lyricsText ? `\n【歌詞風格參考】：${lyricsText.slice(0, 200)}` : '';
                 const savedBlock = savedWords.length > 0 ? `\n已保留（不可重複）：${savedWords.slice(-30).join('、')}` : '';
-                prompt = `你是歌詞創作助手。以下詞語的${posStr}含有指定字，請挑選最適合此創作情境的詞語（一定要挑滿24個，除非不足）：
+                prompt = `你是歌詞創作助手。以下詞語的${posStr}含有指定字，請挑選最適合此創作情境的詞語（必須挑滿 24 個，候選詞充足時絕對不可少於 24，少於即視為失敗）：
 
                 候選詞：${cumulativeCandidates.join('、')}
                 【指定${posStr}字】：${selectedCharsList}
@@ -4832,7 +4845,7 @@
                 const ctxBlock = contextFull ? `\n【情境與#標籤】（請重點優先參考）：${contextFull}` : '';
                 const lyricsBlock = lyricsText ? `\n【歌詞風格參考】：${lyricsText.slice(0, 200)}` : '';
                 const savedBlock = savedWords.length > 0 ? `\n已保留（不可重複）：${savedWords.slice(-30).join('、')}` : '';
-                prompt = `你是歌詞創作助手。以下詞語的押韻符合要求，請挑選最適合此創作情境的詞語（一定要挑滿24個，除非不足）：
+                prompt = `你是歌詞創作助手。以下詞語的押韻符合要求，請挑選最適合此創作情境的詞語（必須挑滿 24 個，候選詞充足時絕對不可少於 24，少於即視為失敗）：
 
                 候選詞：${cumulativeCandidates.join('、')}
                 ${ctxBlock}${lyricsBlock}${savedBlock}
@@ -4865,7 +4878,7 @@
                 const ctxBlock = contextFull ? `\n【情境與#標籤】（請重點優先參考）：${contextFull}` : '';
                 const lyricsBlock = lyricsText ? `\n【歌詞風格參考】：${lyricsText.slice(0, 200)}` : '';
                 const savedBlock = savedWords.length > 0 ? `\n已保留（不可重複）：${savedWords.slice(-30).join('、')}` : '';
-                prompt = `你是歌詞創作助手。以下詞語的聲母（字首）符合要求，請挑選最適合此創作情境的詞語（一定要挑滿24個，除非不足）：
+                prompt = `你是歌詞創作助手。以下詞語的聲母（字首）符合要求，請挑選最適合此創作情境的詞語（必須挑滿 24 個，候選詞充足時絕對不可少於 24，少於即視為失敗）：
 
                 候選詞：${cumulativeCandidates.join('、')}
                 ${ctxBlock}${lyricsBlock}${savedBlock}
@@ -4908,10 +4921,23 @@
                 try {
                     loading.textContent = `AI 思考中…（${m.label}）`;
                     const text = await callLLM(m, prompt);
-                    const words = text.split(/[，,、\n\s]+/).map(w => w.trim()).filter(w =>
+                    let words = text.split(/[，,、\n\s]+/).map(w => w.trim()).filter(w =>
                         w.length >= 2 && w.length <= 8 && (!candidateSet || candidateSet.has(w))
                     ).slice(0, 24);
                     if (words.length === 0) throw new Error('empty');
+                    // 強制挑滿 24（同字模式例外：候選都是同字、本來就會重複）
+                    const isSameCharMode = currentRhymes.length === 1 && filterSameChar;
+                    if (usingWordlist && words.length < 24 && !isSameCharMode && candidateSet) {
+                        const wordsSet = new Set(words);
+                        const remaining = [...candidateSet].filter(w =>
+                            !wordsSet.has(w) && !suggestedPool.has(w) && !savedWords.includes(w)
+                        );
+                        for (let i = remaining.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+                        }
+                        words = words.concat(remaining.slice(0, 24 - words.length));
+                    }
                     words.forEach(w => { suggestedPool.add(w); sentCandidatesSet.add(w); });
                     container.innerHTML = words.map(w =>
                         `<div class="ai-word-card" data-word="${w}" onclick="saveWord('${w.replace(/'/g, "\\'")}')">${w}</div>`
@@ -5429,14 +5455,16 @@
             return chars.length === 1 ? chars[0] : null;
         }
 
-        function _handleSearch(val) {
+        async function _handleSearch(val) {
             const char = _getSearchSingleChar(val);
             // 換字時重置破音字選擇
             if (char !== _polyphonic.char) _polyphonic = { char: null, reading: null };
+            // 先 await chips 渲染（會自動 set _polyphonic 為第一順位讀音），
+            // searchRhyme 才能尊重該選擇
+            await renderPolyphonicChips(char);
             const results = searchRhyme(val);
             displayResults(results);
             updateAIRhymeDisplay(val);
-            renderPolyphonicChips(char);
         }
 
         //標準 input 事件
@@ -5733,6 +5761,33 @@
             showToast(`已回報「${_ctxWord}」— ${labels[type]}`);
         }
 
+        // AI 造詞專用：建議收錄 / 修改後收錄
+        function aiWordSuggest(action) {
+            _hideCtxMenu();
+            if (action === 'accept') {
+                postFeedback({ type: 'ai-word-suggest', word: _ctxWord, action: 'accept' });
+                showToast(`已建議收錄「${_ctxWord}」`);
+            } else if (action === 'modify') {
+                const modified = prompt(`「${_ctxWord}」修改為：`, _ctxWord);
+                if (!modified || modified === _ctxWord) return;
+                postFeedback({ type: 'ai-word-suggest', word: _ctxWord, action: 'modify', modified });
+                showToast(`已建議「${_ctxWord}」→「${modified}」`);
+            }
+        }
+
+        const _CTX_MENU_NORMAL = `
+            <div class="word-ctx-item" onclick="wordCtxReport('rhyme')">🎵 押韻錯誤</div>
+            <div class="word-ctx-item" onclick="wordCtxReport('notExist')">❓ 詞不存在</div>
+            <div class="word-ctx-item" onclick="wordCtxReport('duplicate')">🔁 重複出現</div>
+            <div class="word-ctx-item" onclick="wordCtxReport('obscure')">📦 極度冷僻</div>`;
+        const _CTX_MENU_AI = `
+            <div class="word-ctx-item" onclick="aiWordSuggest('accept')">✅ 建議直接收錄</div>
+            <div class="word-ctx-item" onclick="aiWordSuggest('modify')">✏️ 建議修改後收錄</div>`;
+        function _setCtxMenuFor(card) {
+            const isAI = !!card.querySelector('.ai-badge');
+            document.getElementById('wordCtxItems').innerHTML = isAI ? _CTX_MENU_AI : _CTX_MENU_NORMAL;
+        }
+
         function polyChipReport(type) {
             _hidePolyCtxMenu();
             if (type === 'missingReading') {
@@ -5824,6 +5879,7 @@
             e.preventDefault();
             _ctxWord = card.dataset.word || card.textContent.replace('AI','').trim();
             document.getElementById('wordCtxTitle').textContent = `「${_ctxWord}」`;
+            _setCtxMenuFor(card);
             const x = Math.min(e.clientX, window.innerWidth - 160);
             const y = Math.min(e.clientY, window.innerHeight - 140);
             _ctxMenu.style.left = x + 'px';
@@ -5842,6 +5898,7 @@
                 if (_longPressMoved) return;
                 _ctxWord = card.dataset.word || card.textContent.replace('AI','').trim();
                 document.getElementById('wordCtxTitle').textContent = `「${_ctxWord}」`;
+                _setCtxMenuFor(card);
                 const touch = e.touches[0];
                 const x = Math.min(touch.clientX, window.innerWidth - 160);
                 const y = Math.min(touch.clientY, window.innerHeight - 140);
