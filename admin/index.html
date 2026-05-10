@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>好韻器 回報後台</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Noto Sans TC', system-ui, sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
+
+/* ── Top bar ── */
+.topbar {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff; padding: 14px 24px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.topbar h1 { font-size: 1.1rem; font-weight: 700; }
+.topbar-stats { font-size: 0.82rem; opacity: .85; flex: 1; }
+.topbar input.key-input {
+  background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3);
+  border-radius: 8px; padding: 6px 12px; font-size: 0.85rem; width: 160px;
+}
+.topbar input.key-input::placeholder { color: rgba(255,255,255,.6); }
+.topbar label.toggle {
+  font-size: 0.82rem; display: flex; align-items: center; gap: 6px; cursor: pointer;
+}
+.btn {
+  padding: 6px 14px; border-radius: 8px; border: none; cursor: pointer;
+  font-size: 0.85rem; font-weight: 600; transition: opacity .15s;
+}
+.btn:hover { opacity: .85; }
+.btn-reload { background: rgba(255,255,255,.22); color: #fff; }
+.btn-export { background: #fff; color: #764ba2; }
+.btn-export:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── Layout ── */
+.main { max-width: 960px; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 24px; }
+
+/* ── Section ── */
+.section-title {
+  font-size: 0.78rem; font-weight: 700; letter-spacing: .08em;
+  color: #888; text-transform: uppercase; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-badge {
+  background: #e8e8f0; color: #555; border-radius: 20px;
+  padding: 1px 8px; font-size: 0.72rem;
+}
+
+/* ── Report card ── */
+.card {
+  background: #fff; border-radius: 12px; padding: 16px 18px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+  border-left: 4px solid #e0e0e0;
+  transition: opacity .2s;
+  margin-bottom: 8px;
+}
+.card.agreed   { border-left-color: #48bb78; opacity: .8; }
+.card.dismissed{ border-left-color: #e2e8f0; opacity: .55; }
+.card.archived { border-left-color: #94a3b8; opacity: .5; }
+.card.manual   { border-left-color: #ed8936; }
+
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.card-type-badge {
+  font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+  background: #eef2ff; color: #667eea;
+}
+.card-type-badge.word  { background: #fef3c7; color: #d97706; }
+.card-type-badge.reading { background: #ede9fe; color: #7c3aed; }
+.card-type-badge.feedback { background: #e0f2fe; color: #0284c7; }
+.card-time { font-size: 0.72rem; color: #aaa; margin-left: auto; }
+
+.card-body { font-size: 0.95rem; line-height: 1.6; }
+.card-body .label { font-size: 0.75rem; color: #999; margin-right: 4px; }
+.card-char  { font-size: 1.4rem; font-weight: 700; color: #5a35b0; }
+.card-reading { font-size: 1.1rem; color: #667eea; font-family: monospace; margin-left: 4px; }
+.card-word  { font-size: 1.1rem; font-weight: 700; color: #d97706; }
+.card-reason{ display: inline-block; margin-top: 4px; padding: 2px 10px;
+              border-radius: 20px; font-size: 0.78rem; font-weight: 600;
+              background: #f3f4f6; color: #374151; }
+.card-text  { font-size: 0.88rem; color: #555; margin-top: 6px; white-space: pre-wrap; }
+
+/* ── Action row ── */
+.card-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.action-preview {
+  font-size: 0.75rem; color: #6b7280; background: #f9fafb;
+  border: 1px solid #e5e7eb; border-radius: 6px; padding: 3px 10px; flex: 1;
+}
+.action-preview.agreed   { color: #15803d; border-color: #bbf7d0; background: #f0fdf4; }
+.action-preview.dismissed{ color: #9ca3af; }
+.action-preview.archived { color: #64748b; border-color: #cbd5e1; background: #f1f5f9; }
+
+.btn-agree    { background: #48bb78; color: #fff; padding: 5px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
+.btn-dismiss  { background: #f3f4f6; color: #6b7280; padding: 5px 14px; border-radius: 8px; font-size: 0.82rem; }
+.btn-archive  { background: #e2e8f0; color: #475569; padding: 5px 14px; border-radius: 8px; font-size: 0.82rem; }
+.btn-undo     { background: #fef3c7; color: #92400e; padding: 5px 10px; border-radius: 8px; font-size: 0.78rem; }
+.btn-agree:hover    { background: #38a169; }
+.btn-dismiss:hover  { background: #e5e7eb; }
+.btn-archive:hover  { background: #cbd5e1; }
+.btn[disabled] { opacity: .5; cursor: wait; }
+
+/* ── Missing reading modal ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: none; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: #fff; border-radius: 16px; padding: 28px 32px;
+  width: 420px; max-width: 95vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,.18);
+}
+.modal h3 { font-size: 1rem; margin-bottom: 16px; }
+.modal label { font-size: 0.82rem; color: #555; display: block; margin-bottom: 4px; }
+.modal input, .modal textarea {
+  width: 100%; border: 1.5px solid #d1d5db; border-radius: 8px;
+  padding: 8px 12px; font-size: 0.9rem; margin-bottom: 14px;
+  font-family: inherit;
+}
+.modal input:focus, .modal textarea:focus { outline: none; border-color: #667eea; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ── Empty state ── */
+.empty { text-align: center; padding: 40px 0; color: #bbb; font-size: 0.9rem; }
+.empty.error { color: #dc2626; }
+.empty .hint { font-size: 0.78rem; color: #999; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <h1>🔍 好韻器 回報後台</h1>
+  <span class="topbar-stats" id="statsLabel">尚未載入</span>
+  <input type="password" class="key-input" id="keyInput" placeholder="USER_REPORT_KEY">
+  <label class="toggle"><input type="checkbox" id="showArchived"> 顯示已封存 (<span id="archivedCount">0</span>)</label>
+  <button class="btn btn-reload" onclick="reload()">🔄 重新載入</button>
+  <button class="btn btn-export" id="exportBtn" disabled onclick="exportChanges()">💾 匯出 agreed</button>
+</div>
+
+<!-- Main -->
+<div class="main" id="main">
+  <div class="empty">輸入 USER_REPORT_KEY 後按「重新載入」</div>
+</div>
+
+<!-- Missing reading modal -->
+<div class="modal-overlay" id="missingModal">
+  <div class="modal">
+    <h3>➕ 缺少讀音 — 人工記錄</h3>
+    <label>字</label>
+    <input id="mChar" readonly>
+    <label>回報者說明</label>
+    <textarea id="mNote" rows="3" readonly></textarea>
+    <label>要新增的讀音（注音，例如 ㄏㄜˊ）</label>
+    <input id="mReading" placeholder="請填入正確注音">
+    <label>放入分級</label>
+    <select id="mTier" style="width:100%;padding:8px 12px;border:1.5px solid #d1d5db;border-radius:8px;margin-bottom:14px;font-size:0.9rem;">
+      <option value="common">常用</option>
+      <option value="normal" selected>一般</option>
+      <option value="rare">冷僻</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn" style="background:#f3f4f6;color:#555" onclick="closeMissingModal()">取消</button>
+      <button class="btn" style="background:#667eea;color:#fff" onclick="confirmMissing()">確認記錄</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Config ──
+const WORKER_URL = 'https://lucky-hawaii.is3000dollar.workers.dev';
+const KEY_LS = 'haoYunQi_admin_key';
+
+// ── State ──
+let reports = [];          // [{kvKey, type, status, action, ...}]
+let missingTarget = null;
+let busyKeys = new Set();  // kvKey 進行中（避免重複點擊）
+
+const TONE_MARK_TO_DIGIT = { 'ˊ': '2', 'ˇ': '3', 'ˋ': '4', '˙': '5' };
+function readingToDictKey(reading) {
+  if (!reading) return '';
+  const last = reading[reading.length - 1];
+  if (TONE_MARK_TO_DIGIT[last]) return reading.slice(0, -1) + TONE_MARK_TO_DIGIT[last];
+  return reading + '1';
+}
+
+// ── Key 管理 ──
+const keyInputEl = document.getElementById('keyInput');
+const savedKey = localStorage.getItem(KEY_LS);
+if (savedKey) keyInputEl.value = savedKey;
+
+function getKey() {
+  const k = keyInputEl.value.trim();
+  if (k) localStorage.setItem(KEY_LS, k);
+  return k;
+}
+
+// ── Worker fetch ──
+async function fetchReports() {
+  const key = getKey();
+  if (!key) { showError('請先輸入 USER_REPORT_KEY'); return; }
+  setStats('載入中…');
+  try {
+    const res = await fetch(`${WORKER_URL}/reports.json?key=${encodeURIComponent(key)}`);
+    if (res.status === 403) { showError('密鑰錯誤（403）'); return; }
+    if (!res.ok) { showError(`載入失敗：HTTP ${res.status}`); return; }
+    reports = await res.json();
+    reports.forEach((r, i) => { if (!r.kvKey) r.kvKey = `__no_key_${i}`; });
+    render();
+  } catch(e) {
+    showError(`網路錯誤：${e.message}`);
+  }
+}
+
+async function postDecision(kvKey, status, action) {
+  const key = getKey();
+  if (!key) { alert('密鑰遺失'); return false; }
+  busyKeys.add(kvKey); render();
+  try {
+    const res = await fetch(`${WORKER_URL}/reports/decision?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kvKey, status, action })
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      alert(`寫入失敗 (${res.status})：${t}`);
+      busyKeys.delete(kvKey); render();
+      return false;
+    }
+    // 樂觀更新本地 state
+    const r = reports.find(x => x.kvKey === kvKey);
+    if (r) {
+      if (status === 'pending') {
+        delete r.status; delete r.decided_at; delete r.action;
+      } else {
+        r.status = status;
+        r.decided_at = new Date().toISOString();
+        if (action) r.action = action; else delete r.action;
+      }
+    }
+    busyKeys.delete(kvKey);
+    render();
+    return true;
+  } catch(e) {
+    alert(`網路錯誤：${e.message}`);
+    busyKeys.delete(kvKey); render();
+    return false;
+  }
+}
+
+// ── UI helpers ──
+function setStats(text) { document.getElementById('statsLabel').textContent = text; }
+function showError(msg) {
+  document.getElementById('main').innerHTML = `<div class="empty error">${esc(msg)}<div class="hint">填入正確的 USER_REPORT_KEY 後按「重新載入」</div></div>`;
+  setStats('—');
+}
+
+function reload() { fetchReports(); }
+document.getElementById('showArchived').addEventListener('change', render);
+keyInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') reload(); });
+
+// ── Rendering ──
+function render() {
+  const main = document.getElementById('main');
+  const showArchived = document.getElementById('showArchived').checked;
+  const archivedTotal = reports.filter(r => r.status === 'archived').length;
+  document.getElementById('archivedCount').textContent = archivedTotal;
+
+  const visible = reports.filter(r => showArchived || r.status !== 'archived');
+
+  if (reports.length === 0) {
+    main.innerHTML = '<div class="empty">沒有回報資料</div>';
+    setStats('共 0 筆');
+    document.getElementById('exportBtn').disabled = true;
+    return;
+  }
+
+  const total   = reports.length;
+  const agreed  = reports.filter(r => r.status === 'agreed').length;
+  const pending = reports.filter(r => !r.status).length;
+  setStats(`共 ${total} 筆 · 待審 ${pending} · 已確認 ${agreed} · 已封存 ${archivedTotal}`);
+  document.getElementById('exportBtn').disabled = agreed === 0;
+
+  const feedbacks = visible.filter(r => r.type === 'feedback');
+  const wordReps  = visible.filter(r => r.type === 'word-report');
+  const readReps  = visible.filter(r => r.type === 'char-reading-report');
+
+  let html = '';
+  if (readReps.length)  html += section('🔤 讀音回報', readReps, renderReadingCard);
+  if (wordReps.length)  html += section('🃏 字卡回報', wordReps, renderWordCard);
+  if (feedbacks.length) html += section('📬 一般回饋', feedbacks, renderFeedbackCard);
+  if (!html) html = '<div class="empty">沒有符合條件的回報（archived 已隱藏）</div>';
+
+  main.innerHTML = html;
+}
+
+function section(title, items, cardFn) {
+  const pending = items.filter(r => !r.status).length;
+  return `
+    <div>
+      <div class="section-title">
+        ${title}
+        <span class="section-badge">${items.length} 筆 · 待審 ${pending}</span>
+      </div>
+      ${items.map(cardFn).join('')}
+    </div>`;
+}
+
+function fmtTime(ts) {
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+  } catch { return ts; }
+}
+
+// ── Reading card ──
+function renderReadingCard(r) {
+  const status = r.status || 'pending';
+  const isMissing = r.reportType === '缺少讀音';
+  const a = r.action;
+
+  let actionPreview = '';
+  if (status === 'agreed' && a) {
+    if (a.type === 'move_char_tier')
+      actionPreview = `✓ 將「${a.char}」[${a.dict_key}] 移至 ${tierLabel(a.to_tier)} 區`;
+    else if (a.type === 'remove_char_reading')
+      actionPreview = `✓ 移除「${a.char}」的讀音 ${a.dict_key}`;
+    else if (a.type === 'manual_review')
+      actionPreview = `✓ 人工記錄：新增讀音 ${a.new_reading || '?'} → ${tierLabel(a.to_tier)}`;
+  } else if (status === 'dismissed') {
+    actionPreview = '× 略過';
+  } else if (status === 'archived') {
+    actionPreview = '📦 已封存';
+  } else {
+    if (isMissing) actionPreview = '→ 點 Agree 填寫要新增的讀音';
+    else if (r.reportType === '讀音錯誤') actionPreview = '→ Agree = 移除此讀音';
+    else if (r.reportType === '極度冷僻') actionPreview = '→ Agree = 移至冷僻區';
+  }
+
+  const noteText = r.body ? `<div class="card-text">${esc(r.body)}</div>` : '';
+
+  return `
+    <div class="card ${status} ${isMissing ? 'manual' : ''}">
+      <div class="card-header">
+        <span class="card-type-badge reading">讀音回報</span>
+        <span class="card-char">${esc(r.char || '')}</span>
+        <span class="card-reading">${esc(r.reading || '')}</span>
+        <span class="card-reason">${esc(r.reportType || '')}</span>
+        <span class="card-time">${fmtTime(r.ts)}</span>
+      </div>
+      ${noteText}
+      <div class="card-actions">
+        <span class="action-preview ${status}">${actionPreview}</span>
+        ${actionButtons(r)}
+      </div>
+    </div>`;
+}
+
+function agreeReading(kvKey) {
+  const r = reports.find(x => x.kvKey === kvKey);
+  if (!r) return;
+  if (r.reportType === '缺少讀音') {
+    missingTarget = r;
+    document.getElementById('mChar').value = r.char || '';
+    document.getElementById('mNote').value = r.body || r.subject || '';
+    document.getElementById('mReading').value = '';
+    document.getElementById('missingModal').classList.add('show');
+    return;
+  }
+  const dict_key = readingToDictKey(r.reading);
+  let action;
+  if (r.reportType === '讀音錯誤') {
+    action = { type: 'remove_char_reading', char: r.char, dict_key, reading: r.reading, reason: r.reportType };
+  } else {
+    action = { type: 'move_char_tier', char: r.char, dict_key, reading: r.reading, to_tier: 'rare', reason: r.reportType };
+  }
+  postDecision(kvKey, 'agreed', action);
+}
+
+function closeMissingModal() {
+  document.getElementById('missingModal').classList.remove('show');
+  missingTarget = null;
+}
+
+async function confirmMissing() {
+  if (!missingTarget) return;
+  const newReading = document.getElementById('mReading').value.trim();
+  const tier = document.getElementById('mTier').value;
+  if (!newReading) { alert('請填入讀音'); return; }
+  const action = {
+    type: 'manual_review',
+    char: missingTarget.char,
+    new_reading: newReading,
+    dict_key: readingToDictKey(newReading),
+    to_tier: tier,
+    note: `「${missingTarget.char}」新增讀音 ${newReading}（${tierLabel(tier)}）`,
+    reason: '缺少讀音',
+  };
+  const kvKey = missingTarget.kvKey;
+  closeMissingModal();
+  await postDecision(kvKey, 'agreed', action);
+}
+
+// ── Word card ──
+function renderWordCard(r) {
+  const status = r.status || 'pending';
+  const a = r.action;
+
+  let actionPreview = '';
+  if (status === 'agreed' && a) {
+    if (a.type === 'suppress_word') actionPreview = `✓ 將「${a.word}」加入抑制清單`;
+    else actionPreview = '✓ 已記錄';
+  } else if (status === 'dismissed') {
+    actionPreview = '× 略過';
+  } else if (status === 'archived') {
+    actionPreview = '📦 已封存';
+  } else {
+    if (r.reportType === '重複出現') actionPreview = '→ 執行時問題，不寫入 DB';
+    else actionPreview = '→ Agree = 加入抑制清單';
+  }
+
+  return `
+    <div class="card ${status}">
+      <div class="card-header">
+        <span class="card-type-badge word">字卡回報</span>
+        <span class="card-word">${esc(r.word || '')}</span>
+        <span class="card-reason">${esc(r.reportType || '')}</span>
+        <span class="card-time">${fmtTime(r.ts)}</span>
+      </div>
+      <div class="card-actions">
+        <span class="action-preview ${status}">${actionPreview}</span>
+        ${actionButtons(r)}
+      </div>
+    </div>`;
+}
+
+function agreeWord(kvKey) {
+  const r = reports.find(x => x.kvKey === kvKey);
+  if (!r) return;
+  if (r.reportType === '重複出現') { dismiss(kvKey); return; }
+  const action = { type: 'suppress_word', word: r.word, reason: r.reportType };
+  postDecision(kvKey, 'agreed', action);
+}
+
+// ── Feedback card ──
+function renderFeedbackCard(r) {
+  const status = r.status || 'pending';
+  let preview;
+  if (status === 'dismissed') preview = '× 已讀';
+  else if (status === 'archived') preview = '📦 已封存';
+  else preview = '→ 純閱讀，無自動動作';
+
+  return `
+    <div class="card ${status}">
+      <div class="card-header">
+        <span class="card-type-badge feedback">一般回饋</span>
+        <span style="font-weight:600;font-size:.9rem">${esc(r.subject || '（無主旨）')}</span>
+        <span class="card-time">${fmtTime(r.ts)}</span>
+      </div>
+      ${r.body ? `<div class="card-text">${esc(r.body)}</div>` : ''}
+      <div class="card-actions">
+        <span class="action-preview ${status}">${preview}</span>
+        ${actionButtonsForFeedback(r)}
+      </div>
+    </div>`;
+}
+
+// ── 共用按鈕 ──
+function actionButtons(r) {
+  const status = r.status || 'pending';
+  const dis = busyKeys.has(r.kvKey) ? 'disabled' : '';
+  const k = r.kvKey;
+  const agreeFn = r.type === 'char-reading-report' ? 'agreeReading'
+                : r.type === 'word-report' ? 'agreeWord' : '';
+  const agreeBtn   = agreeFn ? `<button class="btn btn-agree" ${dis} onclick="${agreeFn}('${k}')">✓ Agree</button>` : '';
+  const dismissBtn = `<button class="btn btn-dismiss" ${dis} onclick="dismiss('${k}')">✗ Dismiss</button>`;
+  const archiveBtn = `<button class="btn btn-archive" ${dis} onclick="archive('${k}')">📦 Archive</button>`;
+  const undoBtn    = `<button class="btn btn-undo" ${dis} onclick="undo('${k}')">↩ 還原</button>`;
+  if (status === 'pending') return agreeBtn + dismissBtn + archiveBtn;
+  return undoBtn + archiveBtn;
+}
+
+function actionButtonsForFeedback(r) {
+  const status = r.status || 'pending';
+  const busy = busyKeys.has(r.kvKey);
+  const dis = busy ? 'disabled' : '';
+  const k = r.kvKey;
+  if (status === 'pending') {
+    return `<button class="btn btn-dismiss" ${dis} onclick="dismiss('${k}')">✓ 已讀</button>`
+         + `<button class="btn btn-archive" ${dis} onclick="archive('${k}')">📦 Archive</button>`;
+  }
+  return `<button class="btn btn-undo" ${dis} onclick="undo('${k}')">↩ 還原</button>`
+       + `<button class="btn btn-archive" ${dis} onclick="archive('${k}')">📦 Archive</button>`;
+}
+
+// ── Shared decision actions ──
+function dismiss(kvKey) { postDecision(kvKey, 'dismissed', null); }
+function archive(kvKey) { postDecision(kvKey, 'archived', null); }
+function undo(kvKey)    { postDecision(kvKey, 'pending', null); }
+
+// ── Export ──
+function exportChanges() {
+  const actions = reports
+    .filter(r => r.status === 'agreed' && r.action)
+    .map(r => ({ ...r.action, agreed_at: r.decided_at, source_kvKey: r.kvKey }));
+
+  if (actions.length === 0) { alert('沒有已確認的變更'); return; }
+
+  const out = {
+    schema_version: '1.0',
+    generated_at: new Date().toISOString(),
+    actions
+  };
+
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const today = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `pending-changes-${today}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Helpers ──
+function tierLabel(t) {
+  return { common: '常用', normal: '一般', rare: '冷僻' }[t] || t;
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+}
+
+// ── 開啟即載入（若已有 key）──
+if (savedKey) fetchReports();
+</script>
+</body>
+</html>
