@@ -1004,10 +1004,10 @@ ${typeSummary}
 來源回報 (KV keys)：
 ${kvKeys}
 
-執行方式：
-  cd 到專案根（內含 data/ 目錄），然後
+執行方式：在任何目錄下執行都可以（專案路徑已硬編在 DEFAULT_BASE）：
     python3 apply_changes_${today}.py            # 套用
     python3 apply_changes_${today}.py --dry-run  # 預覽
+若專案路徑變更，請編輯本腳本上方的 DEFAULT_BASE 變數。
 
 寫入目標（皆為「累積追加」，原始字庫/詞庫不動）：
   data/rhyme-dict-overrides.json
@@ -1022,13 +1022,15 @@ from pathlib import Path
 
 DRY_RUN = '--dry-run' in sys.argv
 
-# ── 找專案根（含 data/ 的最近祖先；找不到就用 cwd）──
+# ── 專案根（預設硬編路徑，找不到就報錯）──
+DEFAULT_BASE = Path('/Users/Shared/Claude/Lucky Hawaii')
+
 def find_base():
-    here = Path(__file__).resolve().parent
-    for p in [here, *here.parents]:
-        if (p / 'data').is_dir():
-            return p
-    return Path.cwd()
+    if (DEFAULT_BASE / 'data').is_dir():
+        return DEFAULT_BASE
+    print(f'[FATAL] 找不到專案目錄：{DEFAULT_BASE}')
+    print('       若專案路徑已變更，請修改本腳本上方的 DEFAULT_BASE。')
+    sys.exit(1)
 
 BASE = find_base()
 DATA = BASE / 'data'
