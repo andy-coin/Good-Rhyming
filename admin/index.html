@@ -241,6 +241,10 @@ body {
   border: 1.5px solid var(--border); background: var(--card-bg); color: var(--text-primary);
   font-family: inherit; font-size: 0.9rem; }
 .edit-panel input:focus { outline: none; border-color: #667eea; }
+.edit-panel select { padding: 6px 10px; border-radius: 8px;
+  border: 1.5px solid var(--border); background: var(--card-bg); color: var(--text-primary);
+  font-family: inherit; font-size: 0.9rem; margin-right: 6px; }
+.edit-panel select:focus { outline: none; border-color: #667eea; }
 .btn-hide   { background: rgba(102,126,234,.18); color: #5b6cd1; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
 .btn-remove { background: rgba(229,62,62,.18); color: #c53030; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
 .btn-fix    { background: rgba(237,137,54,.18); color: #c05621; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
@@ -295,6 +299,30 @@ function lookupWordZhuyin(word) {
     const arr = CHAR_READINGS.get(ch);
     return arr && arr.length ? arr[0] : '?';
   }).join(' ');
+}
+
+// ── Effective readings (original + overrides applied) ──
+let _rhymeOvr = null;
+async function _loadRhymeOvr() {
+  if (_rhymeOvr) return;
+  try {
+    const res = await fetch('../data/rhyme-dict-overrides.json');
+    _rhymeOvr = res.ok ? await res.json() : {};
+  } catch(e) { _rhymeOvr = {}; }
+}
+function getEffectiveReadings(char) {
+  const keys = [...(CHAR_READINGS.get(char) || [])];
+  const ovr = _rhymeOvr;
+  if (!ovr) return keys;
+  for (const r of ovr.removed || [])
+    if (r.char === char) { const i = keys.indexOf(r.dict_key); if (i >= 0) keys.splice(i, 1); }
+  for (const r of ovr.hidden || [])
+    if (r.char === char) { const i = keys.indexOf(r.dict_key); if (i >= 0) keys.splice(i, 1); }
+  for (const r of ovr.fixed || [])
+    if (r.char === char) { const i = keys.indexOf(r.from); if (i >= 0) keys[i] = r.to; }
+  for (const r of ovr.added || [])
+    if (r.char === char && !keys.includes(r.dict_key)) keys.push(r.dict_key);
+  return keys;
 }
 </script>
 <script>
@@ -653,15 +681,15 @@ function openAddReadingFromSuggest(kvKey) {
 }
 
 // ── 建議讀音：取代某個舊讀音 ──
-function openReplaceReading(kvKey) {
+async function openReplaceReading(kvKey) {
   const r = reports.find(x => x.kvKey === kvKey);
   if (!r) return;
-  const existingKeys = CHAR_READINGS.get(r.char) || [];
+  await _loadRhymeOvr();
+  const existingKeys = getEffectiveReadings(r.char);
   if (existingKeys.length === 0) {
     alert(`「${r.char}」目前沒有任何讀音可取代，請改選「新增為新讀音」`);
     return;
   }
-  // dict_key（ㄔㄣ2）轉成顯示用的讀音（ㄔㄣˊ）
   const existingReadings = existingKeys.map(k => dispRead(k));
   _editing = {
     kvKey, op: 'replaceReading',
@@ -715,7 +743,7 @@ function confirmEdit() {
 function editPanelHTML() {
   const sel = _editing.selectOptions
     ? `<label style="font-size:0.85rem;margin-right:4px">${esc(_editing.selectLabel || '舊')}</label>
-       <select id="editSelect" style="margin-right:6px">
+       <select id="editSelect">
          ${_editing.selectOptions.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
        </select>
        <span style="margin-right:4px">→</span>`
@@ -1270,18 +1298,35 @@ def apply_action(action, rhyme_ovr, word_ovr):
             _add_obj_unique(rhyme_ovr['added'], entry, ('char', 'dict_key'))
             print(f'  ✓ fix_char_reading→add  {action["char"]} → {action["new_dict_key"]}')
             return 'rhyme'
-        entry = {
-            'char': action['char'],
-            'from': action['old_dict_key'],
-            'to':   action['new_dict_key'],
-        }
-        # 同字同 from 視為更新（用新 to 覆蓋）
+        old_key = action['old_dict_key']
+        new_key = action['new_dict_key']
+        char = action['char']
+        # old_key 本身是 fixed 的結果（to == old_key）→ 判斷是還原還是改指向
+        for i, ex in enumerate(rhyme_ovr['fixed']):
+            if ex.get('char') == char and ex.get('to') == old_key:
+                if new_key == ex['from']:
+                    # 新目標 == 原始讀音 → 刪除這筆 fixed（還原原始）
+                    rhyme_ovr['fixed'].pop(i)
+                    print(f'  ✓ fix_char_reading→revert  {char}|{old_key} → {new_key} (override 已移除)')
+                else:
+                    ex['to'] = new_key
+                    print(f'  ✓ fix_char_reading→rechain  {char}|{old_key} → {new_key}')
+                return 'rhyme'
+        # old_key 是 added 的結果 → 更新 added entry 的 dict_key
+        for ex in rhyme_ovr['added']:
+            if ex.get('char') == char and ex.get('dict_key') == old_key:
+                ex['dict_key'] = new_key
+                ex['reading'] = action.get('new_reading', '')
+                print(f'  ✓ fix_char_reading→update_added  {char}|{old_key} → {new_key}')
+                return 'rhyme'
+        # 一般情況：old_key 是原始讀音，同字同 from 視為更新
+        entry = {'char': char, 'from': old_key, 'to': new_key}
         for ex in rhyme_ovr['fixed']:
-            if ex.get('char') == entry['char'] and ex.get('from') == entry['from']:
+            if ex.get('char') == char and ex.get('from') == old_key:
                 ex.update(entry); break
         else:
             rhyme_ovr['fixed'].append(entry)
-        print(f'  ✓ fix_char_reading  {action["char"]}|{action["old_dict_key"]} → {action["new_dict_key"]}')
+        print(f'  ✓ fix_char_reading  {char}|{old_key} → {new_key}')
         return 'rhyme'
 
     if t == 'manual_add_reading':
