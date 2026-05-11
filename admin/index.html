@@ -628,6 +628,10 @@ function renderReadingCard(r) {
             + btn('btn-fix','✏️ 修正',`openEdit('${k}','fixReading',{placeholder:'新注音(含聲調) 例：ㄏㄜˊ',defaultValue:'${esc(r.reading||'')}'})`,dis)
             + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
             + commonTrailing(r);
+  } else if (r.reportType === '建議讀音') {
+    actions = btn('btn-add','✓ 採用建議',`openEdit('${k}','fixReading',{placeholder:'新注音(含聲調) 例：ㄏㄜˊ',defaultValue:'${esc(r.suggested||'')}'})`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
   } else if (r.reportType === '極度冷僻') {
     actions = btn('btn-hide','🙈 隱藏',`exec('${k}','hideReading')`,dis)
             + btn('btn-remove','🗑 完全移除',`exec('${k}','removeReading')`,dis)
@@ -636,7 +640,8 @@ function renderReadingCard(r) {
   } else {
     actions = btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis) + commonTrailing(r);
   }
-  const noteText = r.body ? `<div class="card-text">${esc(r.body)}</div>` : '';
+  const suggText = r.suggested ? `<div class="card-text">建議：<b>${esc(r.suggested)}</b></div>` : '';
+  const noteText = (r.body ? `<div class="card-text">${esc(r.body)}</div>` : '') + suggText;
   const header = `<span class="card-type-badge reading">讀音回報</span>
       <span class="card-char">${esc(r.char || '')}</span>
       <span class="card-reading">${esc(r.reading || '')}</span>
@@ -656,6 +661,10 @@ function renderWordCard(r) {
     actions = btn('btn-hide','🙈 隱藏',`exec('${k}','hideWord')`,dis)
             + btn('btn-remove','🗑 移除',`exec('${k}','removeWord')`,dis)
             + btn('btn-fix','✏️ 修正注音',`openEdit('${k}','fixWord',{placeholder:'每字注音空格分隔 例：ㄏㄠˇ ㄩㄣˋ'})`,dis)
+            + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
+            + commonTrailing(r);
+  } else if (rt === '建議讀音') {
+    actions = btn('btn-add','✓ 採用建議',`openEdit('${k}','fixWord',{placeholder:'每字注音空格分隔 例：ㄏㄠˇ ㄩㄣˋ',defaultValue:'${esc(r.suggested||'')}'})`,dis)
             + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
             + commonTrailing(r);
   } else if (rt === '極度冷僻') {
@@ -678,7 +687,8 @@ function renderWordCard(r) {
   const header = `<span class="card-type-badge word">字卡回報</span>
       <span class="card-word">${esc(r.word || '')}</span>
       <span class="card-reason">${esc(r.reportType || '')}</span>`;
-  return cardShell(r, header, '', actions);
+  const sugg = r.suggested ? `<div class="card-text">建議：<b>${esc(r.suggested)}</b></div>` : '';
+  return cardShell(r, header, sugg, actions);
 }
 
 function renderFeedbackCard(r) {
