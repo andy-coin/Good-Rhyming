@@ -177,17 +177,18 @@ body {
 
 /* ── 多選 ── */
 .card[data-kvkey] { cursor: default; user-select: none; }
+.card[data-kvkey] *::selection { background: transparent; }
 .card.selected {
-  outline: 2px solid #667eea;
-  outline-offset: 2px;
-  background: rgba(102,126,234,.08);
+  outline: 2px solid #d4a017;
+  outline-offset: 0;
+  background: rgba(250,204,21,.13);
 }
-[data-theme="dark"] .card.selected { background: rgba(102,126,234,.18); }
+[data-theme="dark"] .card.selected { background: rgba(250,204,21,.18); }
 
 .marquee-box {
   position: fixed; display: none; z-index: 900;
-  border: 1.5px dashed #667eea;
-  background: rgba(102,126,234,.12);
+  border: 1.5px dashed #d4a017;
+  background: rgba(250,204,21,.1);
   pointer-events: none;
 }
 
@@ -1293,19 +1294,18 @@ document.addEventListener('mousedown', e => {
     if (e.shiftKey && _lastClickedKey) {
       if (!(e.metaKey || e.ctrlKey)) selectedKeys.clear();
       selectRange(_lastClickedKey, k);
-      _lastClickedKey = k;
-      e.preventDefault();
-      updateBatchBar();
     } else if (e.metaKey || e.ctrlKey) {
       if (selectedKeys.has(k)) selectedKeys.delete(k); else selectedKeys.add(k);
-      _lastClickedKey = k;
-      e.preventDefault();
-      updateBatchBar();
+    } else {
+      if (selectedKeys.has(k)) selectedKeys.delete(k); else selectedKeys.add(k);
     }
-    // 純左鍵點卡片：不動選取，讓使用者能正常閱讀
+    _lastClickedKey = k;
+    e.preventDefault();
+    updateBatchBar();
     return;
   }
   // 點到空白 → 開始橡皮筋
+  e.preventDefault();
   _marquee = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, moved: false,
                additive: e.metaKey || e.ctrlKey || e.shiftKey };
   document.addEventListener('mousemove', onMarqueeMove);
@@ -1321,6 +1321,7 @@ function onMarqueeMove(e) {
     document.getElementById('marqueeBox').style.display = 'block';
   }
   if (_marquee.moved) {
+    e.preventDefault();
     const box = document.getElementById('marqueeBox');
     const x = Math.min(_marquee.x0, _marquee.x1);
     const y = Math.min(_marquee.y0, _marquee.y1);
