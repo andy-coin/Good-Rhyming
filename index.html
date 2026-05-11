@@ -3455,10 +3455,15 @@
                 }
             }
             
-            // 聲調符號
+            // 聲調符號：注音用符號(ˊˇˋ˙)、拼音用數字(1-5)
             if (showPinyin && displayText) {
-                const toneMarks = { 1: '', 2: 'ˊ', 3: 'ˇ', 4: 'ˋ', 5: '˙' };
-                const toneMark = toneMarks[item.tone] || '';
+                const showAsZhuyin = lastSearchType === 'bopomofo';
+                let toneMark = '';
+                if (showAsZhuyin) {
+                    toneMark = ['', '', 'ˊ', 'ˇ', 'ˋ', '˙'][item.tone] || '';
+                } else {
+                    toneMark = item.tone > 0 ? String(item.tone) : '';
+                }
                 if (toneMark) {
                     displayText += `<span class="tone-mark">${toneMark}</span>`;
                 }
@@ -4805,7 +4810,7 @@
             const usePinyin = lastSearchType === 'pinyin';
             if (usePinyin) {
                 const py = zhuyinToPinyin(baseZhuyin);
-                return py + (tone && tone > 0 && tone !== 5 ? tone : (tone === 5 ? '·' : ''));
+                return py + (tone && tone > 0 ? tone : '');
             }
             const zyToneMarks = ['', '', 'ˊ', 'ˇ', 'ˋ', '˙'];
             return baseZhuyin + (zyToneMarks[tone] || '');
