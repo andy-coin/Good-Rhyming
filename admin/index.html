@@ -590,6 +590,13 @@ function buildAction(r, op, payload) {
                                    old_reading: reading, old_dict_key: dict_key,
                                    new_reading: payload, new_dict_key: readingToDictKey(payload),
                                    reason: r.reportType };
+    case 'replaceReading': {
+      const { old_reading, new_reading } = payload || {};
+      return { type: 'fix_char_reading', char: r.char,
+               old_reading, old_dict_key: readingToDictKey(old_reading),
+               new_reading, new_dict_key: readingToDictKey(new_reading),
+               reason: r.reportType };
+    }
     case 'hideWord':      return { type: 'hide_word',   word: r.word, reason: r.reportType };
     case 'removeWord':    return { type: 'remove_word', word: r.word, reason: r.reportType };
     case 'fixWord':       return { type: 'fix_word_reading', word: r.word, new_z: payload, reason: r.reportType };
@@ -627,6 +634,46 @@ async function deleteReport(kvKey) {
   }
 }
 
+// ── 建議讀音：新增為新讀音（直接開 addModal 預填） ──
+function openAddReadingFromSuggest(kvKey) {
+  const r = reports.find(x => x.kvKey === kvKey);
+  if (!r) return;
+  _addModalCtx = { kvKey, op: 'addReading' };
+  document.getElementById('addModalTitle').textContent = '➕ 新增讀音';
+  const subjectLabelEl = document.getElementById('addModalSubjectLabel');
+  const subjectEl = document.getElementById('addSubject');
+  const contentLabelEl = document.getElementById('addModalContentLabel');
+  const contentEl = document.getElementById('addContent');
+  subjectLabelEl.textContent = '字';
+  subjectEl.value = r.char || ''; subjectEl.readOnly = true;
+  contentLabelEl.textContent = '注音（含聲調，例：ㄏㄜˊ）';
+  contentEl.value = r.suggested || ''; contentEl.placeholder = 'ㄏㄜˊ';
+  document.getElementById('addModal').classList.add('show');
+  setTimeout(() => contentEl.focus(), 30);
+}
+
+// ── 建議讀音：取代某個舊讀音 ──
+function openReplaceReading(kvKey) {
+  const r = reports.find(x => x.kvKey === kvKey);
+  if (!r) return;
+  const existingKeys = CHAR_READINGS.get(r.char) || [];
+  if (existingKeys.length === 0) {
+    alert(`「${r.char}」目前沒有任何讀音可取代，請改選「新增為新讀音」`);
+    return;
+  }
+  // dict_key（ㄔㄣ2）轉成顯示用的讀音（ㄔㄣˊ）
+  const existingReadings = existingKeys.map(k => dispRead(k));
+  _editing = {
+    kvKey, op: 'replaceReading',
+    selectOptions: existingReadings,
+    selectLabel: '取代哪個舊讀音',
+    placeholder: '新注音（含聲調）例：ㄏㄜˊ',
+    defaultValue: r.suggested || ''
+  };
+  render();
+  setTimeout(()=>document.getElementById('editInput')?.focus(), 30);
+}
+
 // ── Edit panel（inline 輸入） ──
 function openEdit(kvKey, op, opts) { _editing = { kvKey, op, ...(opts||{}) }; render(); setTimeout(()=>document.getElementById('editInput')?.focus(), 30); }
 function closeEdit() { _editing = null; render(); }
@@ -636,7 +683,7 @@ function confirmEdit() {
   if (!raw) { alert('請輸入內容'); return; }
   const { kvKey, op } = _editing;
   // 讀音類動作要校驗
-  const NEEDS_ZHUYIN = { fixReading: 1, fixWord: 'word' };
+  const NEEDS_ZHUYIN = { fixReading: 1, fixWord: 'word', replaceReading: 1 };
   if (op in NEEDS_ZHUYIN) {
     const norm = normalizeReading(raw);
     let expected = NEEDS_ZHUYIN[op];
@@ -651,6 +698,13 @@ function confirmEdit() {
       return;
     }
     inp.value = norm;
+    // replaceReading 需同時帶 old + new
+    if (op === 'replaceReading') {
+      const oldReading = document.getElementById('editSelect')?.value || '';
+      _editing = null;
+      exec(kvKey, op, { old_reading: oldReading, new_reading: norm });
+      return;
+    }
     _editing = null;
     exec(kvKey, op, norm);
     return;
@@ -659,7 +713,15 @@ function confirmEdit() {
   exec(kvKey, op, raw);
 }
 function editPanelHTML() {
+  const sel = _editing.selectOptions
+    ? `<label style="font-size:0.85rem;margin-right:4px">${esc(_editing.selectLabel || '舊')}</label>
+       <select id="editSelect" style="margin-right:6px">
+         ${_editing.selectOptions.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
+       </select>
+       <span style="margin-right:4px">→</span>`
+    : '';
   return `<div class="edit-panel">
+    ${sel}
     <input id="editInput" placeholder="${esc(_editing.placeholder || '')}" value="${esc(_editing.defaultValue || '')}"
       onkeydown="if(event.key==='Enter')confirmEdit();if(event.key==='Escape')closeEdit();">
     <button class="btn btn-agree" onclick="confirmEdit()">✓ 確認</button>
@@ -785,7 +847,8 @@ function renderReadingCard(r) {
             + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
             + commonTrailing(r);
   } else if (r.reportType === '建議讀音') {
-    actions = btn('btn-add','✓ 採用建議',`openEdit('${k}','fixReading',{placeholder:'新注音(含聲調) 例：ㄏㄜˊ',defaultValue:'${esc(r.suggested||'')}'})`,dis)
+    actions = btn('btn-add','✓ 新增為新讀音',`openAddReadingFromSuggest('${k}')`,dis)
+            + btn('btn-fix','✏️ 取代舊讀音',`openReplaceReading('${k}')`,dis)
             + btn('btn-dismiss','忽略',`exec('${k}','dismiss')`,dis)
             + commonTrailing(r);
   } else if (r.reportType === '極度冷僻') {
@@ -1195,6 +1258,18 @@ def apply_action(action, rhyme_ovr, word_ovr):
         return 'rhyme'
 
     if t == 'fix_char_reading':
+        # old_dict_key 空 → 後台沒提供覆蓋目標，視為純新增讀音
+        if not action.get('old_dict_key'):
+            entry = {
+                'char':     action['char'],
+                'reading':  action.get('new_reading', ''),
+                'dict_key': action['new_dict_key'],
+                'tier':     action.get('to_tier', 'normal'),
+                **meta,
+            }
+            _add_obj_unique(rhyme_ovr['added'], entry, ('char', 'dict_key'))
+            print(f'  ✓ fix_char_reading→add  {action["char"]} → {action["new_dict_key"]}')
+            return 'rhyme'
         entry = {
             'char': action['char'],
             'from': action['old_dict_key'],

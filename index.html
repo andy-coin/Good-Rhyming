@@ -2779,8 +2779,8 @@
                 if (_removeCharFromRhymeKey(it.dict_key, it.char)) count++;
             }
             for (const it of (ovr.fixed || [])) {
-                if (!it.char || !it.from || !it.to) continue;
-                _removeCharFromRhymeKey(it.from, it.char);
+                if (!it.char || !it.to) continue;
+                if (it.from) _removeCharFromRhymeKey(it.from, it.char);  // from 空 → 純新增
                 _addCharToRhymeKey(it.to, it.char, it.tier || 'normal');
                 count++;
             }
@@ -4786,9 +4786,11 @@
             if (currentRhymes.length === 1) {
                 if (word.length < 2 || word.length > 8) return false;
                 const checkChar = rhymeMode === 'rhyme' ? word[word.length - 1] : word[0];
+                const req = currentRhymes[0];
+                // 同字 filter：固定字位必須剛好等於搜尋字
+                if (filterSameChar && req.char && checkChar !== req.char) return false;
                 const infos = charInfo[checkChar] || [];
                 if (!infos.length) return false;
-                const req = currentRhymes[0];
                 if (rhymeMode === 'rhyme') {
                     const reqFamilyId = RHYME_TO_FAMILY[req.rhyme];
                     if (reqFamilyId === undefined) return false;
@@ -4891,7 +4893,11 @@
             let rhymeDesc, lenDesc;
             if (currentRhymes.length === 1) {
                 lenDesc = '2～4字';
-                if (rhymeMode === 'rhyme') {
+                if (filterSameChar) {
+                    // 同字 filter：固定字位為搜尋字本身
+                    const pos = rhymeMode === 'rhyme' ? '字尾' : '字首';
+                    rhymeDesc = `請以「${r0.char || ''}」這個字為${pos}發想造詞（${pos}必須剛好是「${r0.char || ''}」這一個字）`;
+                } else if (rhymeMode === 'rhyme') {
                     rhymeDesc = `末字押「${r0.char || ''}」的韻腳（韻部：${r0.familyLabel || ''}，韻母：${r0.rhyme || r0.zhuyin}）`;
                 } else {
                     rhymeDesc = `首字聲母為「${r0.initial}」`;
@@ -5693,49 +5699,23 @@
             setTimeout(() => e.target.focus(), 10);
         });
 
-        document.getElementById('showPinyin').addEventListener('change', () => {
+        // 統一走 _handleSearch，displayResults 後會重新 append 破音字 chips
+        function _refreshFromCurrentInput() {
             const currentInput = document.getElementById('searchInput').value;
-            if (currentInput) {
-                const results = searchRhyme(currentInput);
-                displayResults(results);
-            }
-        });
-        
-        document.getElementById('highlightSearch').addEventListener('change', () => {
-            const currentInput = document.getElementById('searchInput').value;
-            if (currentInput) {
-                const results = searchRhyme(currentInput);
-                displayResults(results);
-            }
-        });
+            if (currentInput) _handleSearch(currentInput);
+        }
+        document.getElementById('showPinyin').addEventListener('change', _refreshFromCurrentInput);
+        document.getElementById('highlightSearch').addEventListener('change', _refreshFromCurrentInput);
+        document.getElementById('hideRare').addEventListener('change', _refreshFromCurrentInput);
+        document.getElementById('filterDuplicate').addEventListener('change', _refreshFromCurrentInput);
 
-        document.getElementById('hideRare').addEventListener('change', () => {
-            const currentInput = document.getElementById('searchInput').value;
-            if (currentInput) {
-                const results = searchRhyme(currentInput);
-                displayResults(results);
-            }
-        });
-
-        document.getElementById('filterDuplicate').addEventListener('change', () => {
-            const currentInput = document.getElementById('searchInput').value;
-            if (currentInput) {
-                const results = searchRhyme(currentInput);
-                displayResults(results);
-            }
-        });
-
-        // 按鈕組切換
+        // 按鈕組切換（常用字 / 同聲韻 / 同聲調）
         document.querySelectorAll('.mode-button').forEach(button => {
             button.addEventListener('click', function() {
                 document.querySelectorAll('.mode-button').forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
                 currentMode = this.dataset.mode;
-                const currentInput = document.getElementById('searchInput').value;
-                if (currentInput) {
-                    const results = searchRhyme(currentInput);
-                    displayResults(results);
-                }
+                _refreshFromCurrentInput();
             });
         });
 
