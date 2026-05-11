@@ -2331,6 +2331,7 @@
                 </div>
                 <button class="settings-feedback-btn save-load-btn" style="width:100%;text-align:center;margin-top:4px;" onclick="closeSettingsOverlay({target:document.getElementById('settingsOverlay')});openFeedbackModal()">✉️ 回報 / 意見</button>
                 <button class="reset-color" onclick="resetColors()" >重設顏色!</button>
+                <button class="reset-color" onclick="clearDictOverrides()" title="清除瀏覽器中暫存的字庫修改（不影響檔案）" style="margin-top:6px">清除字庫 local 覆寫</button>
             </div>
         </div>
 
@@ -2731,6 +2732,16 @@
 
         function saveDictOverrides() {
             try { localStorage.setItem('dictOverrides_v076', JSON.stringify(dictOverrides)); } catch(e) {}
+        }
+
+        function clearDictOverrides() {
+            const n = Object.keys(dictOverrides || {}).length;
+            const stored = localStorage.getItem('dictOverrides_v076');
+            if (!n && !stored) { alert('目前沒有 local 字庫覆寫'); return; }
+            if (!confirm(`將清除瀏覽器暫存的 ${n} 筆字庫覆寫，並重新載入頁面以套用乾淨的資料檔。確定？`)) return;
+            localStorage.removeItem('dictOverrides_v076');
+            dictOverrides = {};
+            location.reload();
         }
 
         // ── 後台匯出的字庫 overrides（data/rhyme-dict-overrides.json）──
