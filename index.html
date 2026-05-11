@@ -4815,12 +4815,30 @@
             const zyToneMarks = ['', '', 'ˊ', 'ˇ', 'ˋ', '˙'];
             return baseZhuyin + (zyToneMarks[tone] || '');
         }
-        // 取得單字所有讀音（含聲調）的格式化陣列
+        // 取得單字所有讀音（含聲調）的格式化陣列。
+        // 排序原則：先依 polyphonicsOrderMap（破音字讀音順序表）為準，未列出的接在後面。
         function getCharReadingsFormatted(char) {
             const infos = charInfo[char] || [];
+            const _TONE_TO_MARK = ['', '', 'ˊ', 'ˇ', 'ˋ', '˙'];
+            // 用注音+聲調符號的形式當索引（與 polyphonicsOrderMap 的 key 一致）
+            const byZyKey = new Map();
+            for (const { zhuyin, tone } of infos) {
+                const zyKey = zhuyin + (_TONE_TO_MARK[tone] || '');
+                if (!byZyKey.has(zyKey)) byZyKey.set(zyKey, { zhuyin, tone });
+            }
+            const ordered = [];
+            const used = new Set();
+            if (polyphonicsOrderMap && polyphonicsOrderMap.has(char)) {
+                for (const zyKey of polyphonicsOrderMap.get(char)) {
+                    if (byZyKey.has(zyKey)) { ordered.push(byZyKey.get(zyKey)); used.add(zyKey); }
+                }
+            }
+            for (const [zyKey, v] of byZyKey) {
+                if (!used.has(zyKey)) ordered.push(v);
+            }
             const seen = new Set();
             const out = [];
-            for (const { zhuyin, tone } of infos) {
+            for (const { zhuyin, tone } of ordered) {
                 const s = fmtPhonetic(zhuyin, tone);
                 if (s && !seen.has(s)) { seen.add(s); out.push(s); }
             }
