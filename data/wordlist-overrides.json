@@ -1,0 +1,241 @@
+{
+  "version": 1,
+  "words": {
+    "口到": {
+      "removed": true
+    },
+    "牛腰": {
+      "removed": true
+    },
+    "奏草": {
+      "removed": true
+    },
+    "魔堡": {
+      "removed": true
+    },
+    "波導": {
+      "removed": true
+    },
+    "柔條": {
+      "removed": true
+    },
+    "鬥巧": {
+      "removed": true
+    },
+    "堪為": {
+      "removed": true
+    },
+    "團圍": {
+      "hidden": true
+    },
+    "賄絡": {
+      "fixed_z": "ㄏㄨㄟˋ ㄌㄨㄛˋ"
+    },
+    "胡虜": {
+      "removed": true
+    },
+    "貨郎": {
+      "removed": true
+    },
+    "油樣": {
+      "removed": true
+    },
+    "魔障": {
+      "removed": true
+    },
+    "繡匠": {
+      "removed": true
+    },
+    "螺槳": {
+      "removed": true
+    },
+    "周偉航": {
+      "removed": true
+    },
+    "馬德望": {
+      "removed": true
+    },
+    "煩擾": {
+      "removed": true
+    },
+    "测一下": {
+      "removed": true
+    },
+    "後奏": {
+      "removed": true
+    }
+  },
+  "added_words": [],
+  "history": [
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "口到",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:53:12.415Z",
+      "source_kvKey": "1778485886940_ulj1"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "牛腰",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:51:53.473Z",
+      "source_kvKey": "1778485878741_3xa2"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "奏草",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:51:57.520Z",
+      "source_kvKey": "1778485873069_8d34"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "魔堡",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:51:58.429Z",
+      "source_kvKey": "1778485820959_pgw8"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "波導",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:52:00.088Z",
+      "source_kvKey": "1778485817503_swdg"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "柔條",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:52:00.946Z",
+      "source_kvKey": "1778485810941_9qe3"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "鬥巧",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:52:03.660Z",
+      "source_kvKey": "1778485805128_7kyf"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "堪為",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:52:04.728Z",
+      "source_kvKey": "1778485143732_c2uz"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "hide_word",
+      "word": "團圍",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:53:09.529Z",
+      "source_kvKey": "1778485132304_xrfo"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "fix_word_reading",
+      "word": "賄絡",
+      "new_z": "ㄏㄨㄟˋ ㄌㄨㄛˋ",
+      "reason": "建議讀音",
+      "agreed_at": "2026-05-11T08:45:29.672Z",
+      "source_kvKey": "1778484534096_rq6p"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "胡虜",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:53:08.007Z",
+      "source_kvKey": "1778484503147_m2hi"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "貨郎",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:52:30.350Z",
+      "source_kvKey": "1778484494172_mkc2"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "油樣",
+      "reason": "押韻錯誤",
+      "agreed_at": "2026-05-11T07:52:34.206Z",
+      "source_kvKey": "1778483065997_sq32"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "魔障",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:52:35.148Z",
+      "source_kvKey": "1778483025215_sq0n"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "繡匠",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:52:36.160Z",
+      "source_kvKey": "1778483011739_4p99"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "螺槳",
+      "reason": "詞不存在",
+      "agreed_at": "2026-05-11T07:52:40.870Z",
+      "source_kvKey": "1778482997264_kcj7"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "周偉航",
+      "reason": "極度冷僻",
+      "agreed_at": "2026-05-11T07:52:42.259Z",
+      "source_kvKey": "1778449696383_2ava"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "馬德望",
+      "reason": "詞不存在",
+      "agreed_at": "2026-05-11T07:52:44.009Z",
+      "source_kvKey": "1778446331160_2vw1"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "煩擾",
+      "reason": "重複出現",
+      "agreed_at": "2026-05-11T07:52:47.888Z",
+      "source_kvKey": "1778446233520_1smo"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "测一下",
+      "reason": "重複出現",
+      "agreed_at": "2026-05-10T21:46:30.781Z",
+      "source_kvKey": "1778437023566_nu75"
+    },
+    {
+      "ts": "2026-05-11T16:58:35.530453",
+      "type": "remove_word",
+      "word": "後奏",
+      "reason": "詞不存在",
+      "agreed_at": "2026-05-11T07:53:01.165Z",
+      "source_kvKey": "1778430357654_k1hm"
+    }
+  ],
+  "updated_at": "2026-05-11T16:58:35.530453"
+}
