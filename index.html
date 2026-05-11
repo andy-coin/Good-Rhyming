@@ -1101,11 +1101,26 @@
         }
         .word-ctx-menu.show { display: block; }
         .word-ctx-menu-title {
-            font-size: 0.72rem;
-            color: var(--text-secondary);
-            padding: 5px 14px 4px;
+            font-size: 1.05rem;
+            color: var(--text-primary);
+            font-weight: 600;
+            padding: 7px 14px 6px;
             border-bottom: 1px solid var(--border);
             margin-bottom: 3px;
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+        .word-ctx-menu-title .ctx-phonetic {
+            font-size: 0.78rem;
+            font-weight: 400;
+            color: var(--text-secondary);
+        }
+        .word-ctx-reading-row {
+            padding: 4px 14px;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            cursor: default;
         }
         .word-ctx-item {
             display: flex;
@@ -2926,9 +2941,11 @@
                 const fullKey = initial + (rhyme !== zhuyin ? rhyme : '');
                 if (fullZhuyinToPinyin[fullKey]) return fullZhuyinToPinyin[fullKey];
             }
-            // 純聲母
+            // 純聲母（如 ㄓ/ㄔ/ㄕ/ㄖ 或 ㄅ/ㄆ/ㄇ…）：先查 zhuyinInitialToPinyin
+            if (zhuyinInitialToPinyin[zhuyin]) return zhuyinInitialToPinyin[zhuyin];
             if (initial && rhyme === zhuyin) {
                 if (fullZhuyinToPinyin[initial]) return fullZhuyinToPinyin[initial];
+                if (zhuyinInitialToPinyin[initial]) return zhuyinInitialToPinyin[initial];
             }
             return zhuyin; // fallback
         }
@@ -3326,10 +3343,20 @@
             const container = document.createElement('div');
             container.id = 'polyphonicChips';
             container.className = 'polyphonic-chips';
+            // data-reading 保留注音形式（內部識別），按鈕文字依模式顯示
+            const usePinyin = lastSearchType === 'pinyin';
+            const _toneMap = { 'ˊ': 2, 'ˇ': 3, 'ˋ': 4, '˙': 5 };
+            const fmtChip = (r) => {
+                if (!usePinyin) return r;
+                const last = r.slice(-1);
+                const tone = _toneMap[last] || 1;
+                const base = _toneMap[last] ? r.slice(0, -1) : r;
+                return fmtPhonetic(base, tone);
+            };
             container.innerHTML =
                 '<span class="polyphonic-chips-label">破音字：</span>' +
                 readings.map(r =>
-                    `<button class="poly-chip${r === active ? ' active' : ''}" data-char="${char}" data-reading="${r}" onclick="selectPolyphonicReading('${char}','${r}')">${r}</button>`
+                    `<button class="poly-chip${r === active ? ' active' : ''}" data-char="${char}" data-reading="${r}" onclick="selectPolyphonicReading('${char}','${r}')">${fmtChip(r)}</button>`
                 ).join('');
             header.appendChild(container);
         }
@@ -4806,8 +4833,7 @@
                 return fmtPhonetic(zy, matchInfo?.tone || 0);
             });
             if (usePinyin) {
-                const joined = parts.join('-');
-                return joined.charAt(0).toUpperCase() + joined.slice(1);
+                return parts.map(p => p ? p.charAt(0).toUpperCase() + p.slice(1) : p).join('-');
             }
             return parts.join('  ');
         }
@@ -5952,10 +5978,10 @@
         function _showCharCtxMenu(char, x, y) {
             _charCtxChar = char;
             const readings = getCharReadingsFormatted(char);
-            const titleEl = document.getElementById('wordCtxTitle');
-            titleEl.innerHTML = `「${char}」` +
-                (readings.length ? ` <span style="font-size:0.85rem;color:var(--text-secondary);">${readings.join('  ')}</span>` : '');
+            document.getElementById('wordCtxTitle').textContent = char;
+            const readingRows = readings.map(r => `<div class="word-ctx-reading-row">${r}</div>`).join('');
             document.getElementById('wordCtxItems').innerHTML =
+                readingRows +
                 `<div class="word-ctx-item" onclick="charSuggestReading()">🔤 建議讀音</div>`;
             _ctxMenu.style.left = Math.min(x, window.innerWidth - 220) + 'px';
             _ctxMenu.style.top = Math.min(y, window.innerHeight - 100) + 'px';
@@ -6097,7 +6123,9 @@
             if (!card) return;
             e.preventDefault();
             _ctxWord = card.dataset.word || card.textContent.replace('AI','').trim();
-            document.getElementById('wordCtxTitle').textContent = `「${_ctxWord}」`;
+            const _ph = getWordPhoneticDisplay(_ctxWord);
+            document.getElementById('wordCtxTitle').innerHTML =
+                _ctxWord + (_ph ? `<span class="ctx-phonetic">${_ph}</span>` : '');
             _setCtxMenuFor(card);
             const x = Math.min(e.clientX, window.innerWidth - 160);
             const y = Math.min(e.clientY, window.innerHeight - 140);
