@@ -1130,6 +1130,8 @@ BASE = find_base()
 DATA = BASE / 'data'
 RHYME_OVR = DATA / 'rhyme-dict-overrides.json'
 WORD_OVR  = DATA / 'wordlist-overrides.json'
+RHYME_SRC = DATA / 'rhyme-dict.json'
+WORD_SRC  = DATA / 'wordlist.json'
 LOG       = DATA / 'applied-changes.log'
 
 ACTIONS = json.loads(r'''${actionsJSON.replace(/'/g, "\\u0027")}''')
@@ -1274,6 +1276,67 @@ def _add_obj_unique(lst, item, keys):
 def _remove_str(lst, s):
     if s in lst: lst.remove(s)
 
+# ── 原始字庫/詞庫存在性檢查（用於避免對已不存在的對象重複記 remove/hide/fix）──
+_RHYME_SRC_CACHE = None
+_WORDSET_CACHE   = None
+
+def _load_rhyme_src():
+    global _RHYME_SRC_CACHE
+    if _RHYME_SRC_CACHE is None:
+        _RHYME_SRC_CACHE = load_json(RHYME_SRC, {})
+    return _RHYME_SRC_CACHE
+
+def _load_wordset():
+    global _WORDSET_CACHE
+    if _WORDSET_CACHE is None:
+        data = load_json(WORD_SRC, [])
+        _WORDSET_CACHE = {it['w'] for it in data if isinstance(it, dict) and 'w' in it}
+    return _WORDSET_CACHE
+
+_WORD_Z_CACHE = None
+def _load_word_z_map():
+    global _WORD_Z_CACHE
+    if _WORD_Z_CACHE is None:
+        data = load_json(WORD_SRC, [])
+        _WORD_Z_CACHE = {it['w']: it.get('z', '') for it in data if isinstance(it, dict) and 'w' in it}
+    return _WORD_Z_CACHE
+
+def _char_in_orig(char, dk):
+    """char 是否在原始 rhymeDict[dk] 條目（任意 tier 區）"""
+    return char in _load_rhyme_src().get(dk, '')
+
+def char_reading_exists(char, dk, rhyme_ovr):
+    """套用現有 override 後，char 在 dk 是否仍有效"""
+    # added 命中 → 一定存在
+    if any(e.get('char') == char and e.get('dict_key') == dk for e in rhyme_ovr['added']):
+        return True
+    # removed / hidden 命中 → 已不存在
+    if any(e.get('char') == char and e.get('dict_key') == dk for e in rhyme_ovr['removed']):
+        return False
+    if any(e.get('char') == char and e.get('dict_key') == dk for e in rhyme_ovr['hidden']):
+        return False
+    # fixed：char 從 from 搬到 to
+    for e in rhyme_ovr['fixed']:
+        if e.get('char') != char: continue
+        if e.get('to') == dk: return True
+        if e.get('from') == dk: return False
+    return _char_in_orig(char, dk)
+
+def _pop_char_from(bucket, char, dk):
+    """從 removed/hidden 中移除 (char, dk) 條目，回傳是否有移除"""
+    for i, e in enumerate(bucket):
+        if e.get('char') == char and e.get('dict_key') == dk:
+            bucket.pop(i); return True
+    return False
+
+def word_exists(word, word_ovr):
+    if any(e.get('w') == word for e in word_ovr['added']):
+        return True
+    if word in word_ovr['removed'] or word in word_ovr['hidden']:
+        return False
+    # fixed 只改注音，不影響存在
+    return word in _load_wordset()
+
 # ── 套用單一 action ──
 def apply_action(action, rhyme_ovr, word_ovr):
     t = action.get('type')
@@ -1296,6 +1359,10 @@ def apply_action(action, rhyme_ovr, word_ovr):
                 rhyme_ovr['fixed'].pop(i)
                 print(f'  ✓ {t}→revert_fixed  {char}|{dk} (fixed 已移除)')
                 return 'rhyme'
+        # 對象已不存在 → skip，避免留下冗餘 override
+        if not char_reading_exists(char, dk, rhyme_ovr):
+            print(f'  ⊘ {t}  {char}|{dk} (對象已不存在，skip)')
+            return None
         entry = {'char': char, 'dict_key': dk}
         if action.get('reading'): entry['reading'] = action['reading']
         _add_obj_unique(rhyme_ovr[bucket], entry, ('char', 'dict_key'))
@@ -1305,15 +1372,23 @@ def apply_action(action, rhyme_ovr, word_ovr):
     if t == 'fix_char_reading':
         # old_dict_key 空 → 後台沒提供覆蓋目標，視為純新增讀音
         if not action.get('old_dict_key'):
+            char = action['char']
+            new_key = action['new_dict_key']
+            # 反向互消：之前被 removed/hidden 的同對象 → 撤銷
+            reverted = _pop_char_from(rhyme_ovr['removed'], char, new_key)
+            reverted = _pop_char_from(rhyme_ovr['hidden'], char, new_key) or reverted
+            if reverted and _char_in_orig(char, new_key):
+                print(f'  ✓ fix_char_reading→revert_removed  {char}|{new_key} (回到原始)')
+                return 'rhyme'
             entry = {
-                'char':     action['char'],
+                'char':     char,
                 'reading':  action.get('new_reading', ''),
-                'dict_key': action['new_dict_key'],
+                'dict_key': new_key,
                 'tier':     action.get('to_tier', 'normal'),
                 **meta,
             }
             _add_obj_unique(rhyme_ovr['added'], entry, ('char', 'dict_key'))
-            print(f'  ✓ fix_char_reading→add  {action["char"]} → {action["new_dict_key"]}')
+            print(f'  ✓ fix_char_reading→add  {char} → {new_key}')
             return 'rhyme'
         old_key = action['old_dict_key']
         new_key = action['new_dict_key']
@@ -1337,6 +1412,12 @@ def apply_action(action, rhyme_ovr, word_ovr):
                 print(f'  ✓ fix_char_reading→update_added  {char}|{old_key} → {new_key}')
                 return 'rhyme'
         # 一般情況：old_key 是原始讀音，同字同 from 視為更新
+        if not char_reading_exists(char, old_key, rhyme_ovr):
+            print(f'  ⊘ fix_char_reading  {char}|{old_key} → {new_key} (來源不存在，skip)')
+            return None
+        # 反向互消：new_key 之前被 removed/hidden → 撤銷（讓新目標生效）
+        _pop_char_from(rhyme_ovr['removed'], char, new_key)
+        _pop_char_from(rhyme_ovr['hidden'],  char, new_key)
         entry = {'char': char, 'from': old_key, 'to': new_key}
         for ex in rhyme_ovr['fixed']:
             if ex.get('char') == char and ex.get('from') == old_key:
@@ -1347,69 +1428,139 @@ def apply_action(action, rhyme_ovr, word_ovr):
         return 'rhyme'
 
     if t == 'manual_add_reading':
+        char = action['char']
+        dk = action['new_dict_key']
+        reverted = _pop_char_from(rhyme_ovr['removed'], char, dk)
+        reverted = _pop_char_from(rhyme_ovr['hidden'], char, dk) or reverted
+        if reverted and _char_in_orig(char, dk):
+            print(f'  ✓ manual_add_reading→revert_removed  {char}|{dk} (回到原始)')
+            return 'rhyme'
         entry = {
-            'char':     action['char'],
+            'char':     char,
             'reading':  action['new_reading'],
-            'dict_key': action['new_dict_key'],
+            'dict_key': dk,
             'tier':     action.get('to_tier', 'normal'),
             **meta,
         }
         _add_obj_unique(rhyme_ovr['added'], entry, ('char', 'dict_key'))
-        print(f'  ✓ manual_add_reading  {action["char"]} {action["new_reading"]} ({action.get("to_tier")})')
+        print(f'  ✓ manual_add_reading  {char} {action["new_reading"]} ({action.get("to_tier")})')
         return 'rhyme'
 
     # ── 詞級 ──
     if t == 'remove_word':
-        _add_str_unique(word_ovr['removed'], action['word'])
-        _remove_str(word_ovr['hidden'], action['word'])  # 互斥
-        word_ovr['fixed'].pop(action['word'], None)
-        print(f'  ✓ remove_word  {action["word"]}')
+        w = action['word']
+        # 互消：若 w 是先前 added 的，直接刪掉那筆 added
+        for i, ex in enumerate(word_ovr['added']):
+            if ex.get('w') == w:
+                word_ovr['added'].pop(i)
+                print(f'  ✓ remove_word→revert_added  {w} (added 已移除)')
+                return 'word'
+        if not word_exists(w, word_ovr):
+            print(f'  ⊘ remove_word  {w} (對象已不存在，skip)')
+            return None
+        _add_str_unique(word_ovr['removed'], w)
+        _remove_str(word_ovr['hidden'], w)  # 互斥
+        word_ovr['fixed'].pop(w, None)
+        print(f'  ✓ remove_word  {w}')
         return 'word'
 
     if t == 'hide_word':
-        _add_str_unique(word_ovr['hidden'], action['word'])
-        _remove_str(word_ovr['removed'], action['word'])
-        print(f'  ✓ hide_word  {action["word"]}')
+        w = action['word']
+        for i, ex in enumerate(word_ovr['added']):
+            if ex.get('w') == w:
+                word_ovr['added'].pop(i)
+                print(f'  ✓ hide_word→revert_added  {w} (added 已移除)')
+                return 'word'
+        if not word_exists(w, word_ovr):
+            print(f'  ⊘ hide_word  {w} (對象已不存在，skip)')
+            return None
+        _add_str_unique(word_ovr['hidden'], w)
+        _remove_str(word_ovr['removed'], w)
+        print(f'  ✓ hide_word  {w}')
         return 'word'
 
     if t == 'fix_word_reading':
-        word_ovr['fixed'][action['word']] = action['new_z']
-        print(f'  ✓ fix_word_reading  {action["word"]} → {action["new_z"]}')
+        w = action['word']
+        # 若 w 是 added 進來的，直接改 added entry 的 z
+        for ex in word_ovr['added']:
+            if ex.get('w') == w:
+                ex['z'] = action['new_z']
+                print(f'  ✓ fix_word_reading→update_added  {w} → {action["new_z"]}')
+                return 'word'
+        new_z = action['new_z']
+        # 反向互消：w 之前被 removed/hidden → 撤銷（讓詞重新生效再改注音）
+        reverted = False
+        if w in word_ovr['removed']: word_ovr['removed'].remove(w); reverted = True
+        if w in word_ovr['hidden']:  word_ovr['hidden'].remove(w);  reverted = True
+        if not word_exists(w, word_ovr) and not reverted:
+            print(f'  ⊘ fix_word_reading  {w} → {new_z} (對象已不存在，skip)')
+            return None
+        # 反向互消：若 new_z 等於原始 z → 撤銷 fixed 條目（回到原始）
+        orig_z = _load_word_z_map().get(w)
+        if orig_z is not None and new_z == orig_z:
+            if word_ovr['fixed'].pop(w, None) is not None:
+                print(f'  ✓ fix_word_reading→revert  {w} → {new_z} (fixed 已移除，回到原始)')
+            else:
+                print(f'  ⊘ fix_word_reading  {w} → {new_z} (與原始相同，skip)')
+            return 'word' if reverted else None
+        word_ovr['fixed'][w] = new_z
+        print(f'  ✓ fix_word_reading  {w} → {new_z}')
         return 'word'
 
     if t == 'manual_add_word':
+        w = action['word']
+        reverted = False
+        if w in word_ovr['removed']: word_ovr['removed'].remove(w); reverted = True
+        if w in word_ovr['hidden']:  word_ovr['hidden'].remove(w);  reverted = True
+        if reverted and w in _load_wordset():
+            print(f'  ✓ manual_add_word→revert_removed  {w} (回到原始)')
+            return 'word'
         entry = {
-            'w': action['word'], 'z': action.get('z', ''),
+            'w': w, 'z': action.get('z', ''),
             'tier': action.get('tier', 'normal'),
             'source': 'manual', **meta,
         }
         _add_obj_unique(word_ovr['added'], entry, ('w',))
         if not action.get('z'):
-            print(f'  [WARN] manual_add_word "{action["word"]}" 缺注音 z')
-        print(f'  ✓ manual_add_word  {action["word"]} ({action.get("z","?")})')
+            print(f'  [WARN] manual_add_word "{w}" 缺注音 z')
+        print(f'  ✓ manual_add_word  {w} ({action.get("z","?")})')
         return 'word'
 
     if t == 'accept_ai_word':
+        w = action['word']
         z = action.get('z', '')
-        entry = {'w': action['word'], 'z': z, 'tier': 'normal', 'source': 'ai_accept', **meta}
+        reverted = False
+        if w in word_ovr['removed']: word_ovr['removed'].remove(w); reverted = True
+        if w in word_ovr['hidden']:  word_ovr['hidden'].remove(w);  reverted = True
+        if reverted and w in _load_wordset():
+            print(f'  ✓ accept_ai_word→revert_removed  {w} (回到原始)')
+            return 'word'
+        entry = {'w': w, 'z': z, 'tier': 'normal', 'source': 'ai_accept', **meta}
         _add_obj_unique(word_ovr['added'], entry, ('w',))
         if not z or '?' in z:
-            print(f'  [WARN] accept_ai_word "{action["word"]}" 注音空或含 ?：{z!r}')
+            print(f'  [WARN] accept_ai_word "{w}" 注音空或含 ?：{z!r}')
         else:
-            print(f'  ✓ accept_ai_word  {action["word"]} ({z})')
+            print(f'  ✓ accept_ai_word  {w} ({z})')
         return 'word'
 
     if t == 'modify_ai_word':
+        w = action['modified']
         z = action.get('z', '')
+        reverted = False
+        if w in word_ovr['removed']: word_ovr['removed'].remove(w); reverted = True
+        if w in word_ovr['hidden']:  word_ovr['hidden'].remove(w);  reverted = True
+        if reverted and w in _load_wordset():
+            print(f'  ✓ modify_ai_word→revert_removed  {w} (回到原始)')
+            return 'word'
         entry = {
-            'w': action['modified'], 'z': z, 'tier': 'normal',
+            'w': w, 'z': z, 'tier': 'normal',
             'source': 'ai_modify', 'original': action.get('original'), **meta,
         }
         _add_obj_unique(word_ovr['added'], entry, ('w',))
         if not z or '?' in z:
-            print(f'  [WARN] modify_ai_word "{action.get("original")}" → "{action["modified"]}" 注音空或含 ?：{z!r}')
+            print(f'  [WARN] modify_ai_word "{action.get("original")}" → "{w}" 注音空或含 ?：{z!r}')
         else:
-            print(f'  ✓ modify_ai_word  {action.get("original")} → {action["modified"]} ({z})')
+            print(f'  ✓ modify_ai_word  {action.get("original")} → {w} ({z})')
         return 'word'
 
     if t == 'note':
