@@ -187,22 +187,22 @@ body {
 
 .marquee-box {
   position: fixed; display: none; z-index: 900;
-  border: 1.5px dashed #d4a017;
-  background: rgba(250,204,21,.1);
+  border: 1.5px dashed rgba(255,255,255,.7);
+  background: rgba(255,255,255,.06);
   pointer-events: none;
 }
 
 .batch-bar {
-  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+  position: fixed; right: 20px; top: 50%; transform: translateY(-50%);
   background: var(--container-bg); color: var(--text-primary);
-  border: 1px solid var(--border); border-radius: 12px;
-  padding: 10px 16px; display: none; align-items: center; gap: 10px;
-  box-shadow: 0 4px 24px rgba(0,0,0,.3);
-  z-index: 950; font-size: 0.88rem;
+  border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px 18px; display: none; flex-direction: column; align-items: stretch; gap: 10px;
+  box-shadow: 0 4px 28px rgba(0,0,0,.35);
+  z-index: 950; font-size: 0.92rem; min-width: 130px;
 }
 .batch-bar.show { display: flex; }
-.batch-bar .count { font-weight: 700; color: #667eea; }
-.batch-bar .btn { font-size: 0.82rem; padding: 6px 12px; }
+.batch-bar .count { font-weight: 700; color: #d4a017; text-align: center; margin-bottom: 2px; }
+.batch-bar .btn { font-size: 0.86rem; padding: 8px 14px; text-align: center; }
 .batch-bar .btn-clear { background: var(--section-badge-bg); color: var(--text-secondary); }
 </style>
 </head>
@@ -1297,7 +1297,9 @@ document.addEventListener('mousedown', e => {
     } else if (e.metaKey || e.ctrlKey) {
       if (selectedKeys.has(k)) selectedKeys.delete(k); else selectedKeys.add(k);
     } else {
-      if (selectedKeys.has(k)) selectedKeys.delete(k); else selectedKeys.add(k);
+      const alreadyOnly = selectedKeys.has(k) && selectedKeys.size === 1;
+      selectedKeys.clear();
+      if (!alreadyOnly) selectedKeys.add(k);
     }
     _lastClickedKey = k;
     e.preventDefault();
