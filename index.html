@@ -3005,21 +3005,34 @@
             searchedTerms = [];
             let gOff = 0;
 
+            // 同字同 base 可能對應多個 tone（破音字如潛、著），逐 tone 展開
+            function _tonesFor(char, zy) {
+                const infos = (charInfo[char] || []).filter(i => i.zhuyin === zy);
+                return infos.length ? infos : [{ tone: 0, tier: 'normal' }];
+            }
+            function _pushExpanded(char, zy, extra) {
+                for (const { tone, tier } of _tonesFor(char, zy)) {
+                    const key = char + zy + tone;
+                    if (seenChars.has(key)) continue;
+                    seenChars.add(key);
+                    allResults.push({
+                        char, zhuyin: zy, pinyin: zhuyinToPinyin(zy),
+                        tone, tier, ...extra
+                    });
+                }
+            }
+
             // === 輔助：從字典匹配韻母列表 ===
             function collectByRhymes(rhymeList, initials, groupIdx) {
                 const rhymeSet = new Set(rhymeList);
                 for (let char in chineseDict) {
                     for (let zy of chineseDict[char]) {
-                        if (seenChars.has(char + zy)) continue;
                         const rh = getZhuyinRhyme(zy);
                         const ini = getZhuyinInitial(zy);
                         if (rhymeSet.has(rh) && (!initials || initials.has(ini))) {
-                            allResults.push({
-                                char, zhuyin: zy, pinyin: zhuyinToPinyin(zy),
-                                zhuyinRhyme: rh, zhuyinInitial: ini,
-                                rhymeIndex: groupIdx
+                            _pushExpanded(char, zy, {
+                                zhuyinRhyme: rh, zhuyinInitial: ini, rhymeIndex: groupIdx
                             });
-                            seenChars.add(char + zy);
                         }
                     }
                 }
@@ -3044,16 +3057,19 @@
                 const familyGroups = {};
                 for (let char in chineseDict) {
                     for (let zy of chineseDict[char]) {
-                        if (seenChars.has(char + zy)) continue;
-                        if (getZhuyinInitial(zy) === targetInitial) {
-                            const rh = getZhuyinRhyme(zy);
-                            const famId = RHYME_TO_FAMILY[rh] !== undefined ? RHYME_TO_FAMILY[rh] : -1;
+                        if (getZhuyinInitial(zy) !== targetInitial) continue;
+                        const rh = getZhuyinRhyme(zy);
+                        const famId = RHYME_TO_FAMILY[rh] !== undefined ? RHYME_TO_FAMILY[rh] : -1;
+                        for (const { tone, tier } of _tonesFor(char, zy)) {
+                            const key = char + zy + tone;
+                            if (seenChars.has(key)) continue;
+                            seenChars.add(key);
                             if (!familyGroups[famId]) familyGroups[famId] = [];
                             familyGroups[famId].push({
                                 char, zhuyin: zy, pinyin: zhuyinToPinyin(zy),
-                                zhuyinRhyme: rh, zhuyinInitial: targetInitial
+                                zhuyinRhyme: rh, zhuyinInitial: targetInitial,
+                                tone, tier
                             });
-                            seenChars.add(char + zy);
                         }
                     }
                 }
@@ -3082,17 +3098,20 @@
                 const familyGroups = {};
                 for (let char in chineseDict) {
                     for (let zy of chineseDict[char]) {
-                        if (seenChars.has(char + zy)) continue;
                         const ini = getZhuyinInitial(zy);
                         const rh = getZhuyinRhyme(zy);
-                        if (ini === targetInitial && (rh === medial || rh.startsWith(medial))) {
-                            const famId = RHYME_TO_FAMILY[rh] !== undefined ? RHYME_TO_FAMILY[rh] : -1;
+                        if (!(ini === targetInitial && (rh === medial || rh.startsWith(medial)))) continue;
+                        const famId = RHYME_TO_FAMILY[rh] !== undefined ? RHYME_TO_FAMILY[rh] : -1;
+                        for (const { tone, tier } of _tonesFor(char, zy)) {
+                            const key = char + zy + tone;
+                            if (seenChars.has(key)) continue;
+                            seenChars.add(key);
                             if (!familyGroups[famId]) familyGroups[famId] = [];
                             familyGroups[famId].push({
                                 char, zhuyin: zy, pinyin: zhuyinToPinyin(zy),
-                                zhuyinRhyme: rh, zhuyinInitial: ini
+                                zhuyinRhyme: rh, zhuyinInitial: ini,
+                                tone, tier
                             });
-                            seenChars.add(char + zy);
                         }
                     }
                 }
@@ -3126,16 +3145,12 @@
                     const rhymeSet = new Set(sg.rhymes);
                     for (let char in chineseDict) {
                         for (let zy of chineseDict[char]) {
-                            if (seenChars.has(char + zy)) continue;
                             const rh = getZhuyinRhyme(zy);
                             const ini = getZhuyinInitial(zy);
                             if (rhymeSet.has(rh) && (!sg.initials || sg.initials.has(ini))) {
-                                allResults.push({
-                                    char, zhuyin: zy, pinyin: zhuyinToPinyin(zy),
-                                    zhuyinRhyme: rh, zhuyinInitial: ini,
-                                    rhymeIndex: idx
+                                _pushExpanded(char, zy, {
+                                    zhuyinRhyme: rh, zhuyinInitial: ini, rhymeIndex: idx
                                 });
-                                seenChars.add(char + zy);
                             }
                         }
                     }
@@ -3153,16 +3168,12 @@
                 });
                 for (let char in chineseDict) {
                     for (let zy of chineseDict[char]) {
-                        if (seenChars.has(char + zy)) continue;
                         const rh = getZhuyinRhyme(zy);
                         const ini = getZhuyinInitial(zy);
                         if (rh === 'ㄨㄛ' || (rh === 'ㄛ' && bpmfSet.has(ini))) {
-                            allResults.push({
-                                char, zhuyin: zy, pinyin: zhuyinToPinyin(zy),
-                                zhuyinRhyme: rh, zhuyinInitial: ini,
-                                rhymeIndex: idx
+                            _pushExpanded(char, zy, {
+                                zhuyinRhyme: rh, zhuyinInitial: ini, rhymeIndex: idx
                             });
-                            seenChars.add(char + zy);
                         }
                     }
                 }
@@ -3354,7 +3365,12 @@
         }
 
         function isPolyphonic(char) {
-            return chineseDict[char] && chineseDict[char].length > 1;
+            // 以 charInfo 內不同 (zhuyin, tone) 組合數為準，含「同 base 不同 tone」的破音字（如潛 ㄑㄧㄢˊ/ㄑㄧㄢˇ）
+            const infos = charInfo[char];
+            if (!infos || infos.length < 2) return false;
+            const set = new Set();
+            for (const { zhuyin, tone } of infos) set.add(zhuyin + tone);
+            return set.size > 1;
         }
 
         async function renderPolyphonicChips(char) {
@@ -5403,6 +5419,8 @@
             }
 
             results.forEach(r => {
+                // 搜尋階段已把 tone/tier 帶上來（含同 base 不同 tone 的破音字），這裡只補搜尋未填入的舊路徑
+                if (r.tone !== undefined && r.tier !== undefined) return;
                 const infos = charInfo[r.char];
                 if (infos) {
                     const match = infos.find(i => i.zhuyin === r.zhuyin);
