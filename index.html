@@ -2872,13 +2872,28 @@
         }
         
         // 從注音字串提取韻母
+        // 聲調符號統一表（1聲省略 / ˉ）
+        const TONE_MARK_RE = /[ˊˇˋ˙ˉ]/g;
+        const TONE_TAIL_RE = /[ˊˇˋ˙ˉ]$/;
+        const TONE_CHAR_TO_INT = { 'ˉ': 1, 'ˊ': 2, 'ˇ': 3, 'ˋ': 4, '˙': 5 };
+        function stripTone(zy) {
+            return zy ? zy.replace(TONE_MARK_RE, '') : zy;
+        }
+        function getZhuyinTone(zy) {
+            if (!zy) return 1;
+            const last = zy[zy.length - 1];
+            return TONE_CHAR_TO_INT[last] || 1;
+        }
+
         function getZhuyinRhyme(zhuyin) {
             if (!zhuyin || zhuyin.length === 0) return '';
-            if (zhuyinInitialSet.has(zhuyin[0])) {
-                const rhyme = zhuyin.substring(1);
-                return rhyme || zhuyin; // 純聲母（如 ㄓ=知）時回傳整個
+            const base = stripTone(zhuyin);
+            if (!base) return '';
+            if (zhuyinInitialSet.has(base[0])) {
+                const rhyme = base.substring(1);
+                return rhyme || base; // 純聲母（如 ㄓ=知）時回傳整個
             }
-            return zhuyin; // 整個都是韻母
+            return base; // 整個都是韻母
         }
         
         function pinyinToZhuyinGroups(pinyin) {
@@ -4282,7 +4297,7 @@
                     }
                     let zhuyin;
                     if (wordlistSyllables) {
-                        zhuyin = wordlistSyllables[i];
+                        zhuyin = stripTone(wordlistSyllables[i]);
                     } else {
                         const zhuyins = chineseDict[char];
                         if (!zhuyins || zhuyins.length === 0) {
@@ -4850,10 +4865,16 @@
             const syllables = stored ? stored.split(' ') : [];
             const usePinyin = lastSearchType === 'pinyin';
             const parts = [...word].map((char, i) => {
-                const zy = syllables[i] || (chineseDict[char] || [''])[0] || '';
+                const raw = syllables[i] || (chineseDict[char] || [''])[0] || '';
+                const base = stripTone(raw);
+                // 詞庫帶聲調 → 直接取；否則 fallback 從 charInfo 用 base 推
+                const wordlistTone = raw !== base ? getZhuyinTone(raw) : null;
                 const infos = charInfo[char] || [];
-                const matchInfo = infos.find(info => info.zhuyin === zy) || infos[0];
-                return fmtPhonetic(zy, matchInfo?.tone || 0);
+                const matchInfo = wordlistTone
+                    ? (infos.find(info => info.zhuyin === base && info.tone === wordlistTone) || infos.find(info => info.zhuyin === base) || infos[0])
+                    : (infos.find(info => info.zhuyin === base) || infos[0]);
+                const tone = wordlistTone || matchInfo?.tone || 0;
+                return fmtPhonetic(base, tone);
             });
             if (usePinyin) {
                 return parts.map(p => p ? p.charAt(0).toUpperCase() + p.slice(1) : p).join('-');
