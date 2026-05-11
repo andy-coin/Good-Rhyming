@@ -174,6 +174,35 @@ body {
 .empty { text-align: center; padding: 40px 0; color: var(--text-muted); font-size: 0.9rem; }
 .empty.error { color: #fc8181; }
 .empty .hint { font-size: 0.78rem; color: var(--text-muted); margin-top: 8px; opacity: .8; }
+
+/* ── 多選 ── */
+.card[data-kvkey] { cursor: default; user-select: none; }
+.card.selected {
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
+  background: rgba(102,126,234,.08);
+}
+[data-theme="dark"] .card.selected { background: rgba(102,126,234,.18); }
+
+.marquee-box {
+  position: fixed; display: none; z-index: 900;
+  border: 1.5px dashed #667eea;
+  background: rgba(102,126,234,.12);
+  pointer-events: none;
+}
+
+.batch-bar {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+  background: var(--container-bg); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 16px; display: none; align-items: center; gap: 10px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.3);
+  z-index: 950; font-size: 0.88rem;
+}
+.batch-bar.show { display: flex; }
+.batch-bar .count { font-weight: 700; color: #667eea; }
+.batch-bar .btn { font-size: 0.82rem; padding: 6px 12px; }
+.batch-bar .btn-clear { background: var(--section-badge-bg); color: var(--text-secondary); }
 </style>
 </head>
 <body>
@@ -188,6 +217,16 @@ body {
   <button class="btn btn-reload" onclick="reload()">🔄 重新載入</button>
   <button class="btn btn-export" id="exportBtn" disabled onclick="exportChanges()">💾 匯出 agreed</button>
 </div>
+
+<!-- 批次工具列 + 橡皮筋框 -->
+<div class="batch-bar" id="batchBar">
+  <span>已選 <span class="count" id="batchCount">0</span> 筆</span>
+  <button class="btn btn-archive" onclick="batchArchive()">📦 封存</button>
+  <button class="btn btn-undo" onclick="batchRestore()">↩ 還原</button>
+  <button class="btn btn-delete" onclick="batchDelete()">🗑 永久刪除</button>
+  <button class="btn btn-clear" onclick="clearSelection()">清除選取</button>
+</div>
+<div class="marquee-box" id="marqueeBox"></div>
 
 <!-- Main -->
 <div class="main" id="main">
@@ -278,6 +317,77 @@ const ACTION_LABEL = {
   note:               a => `📝 備註：${a.text}`,
 };
 
+// ── 注音 / 拼音 對應（用於把拼音輸入正規化成注音）──
+const _zy2py = {
+  'ㄅㄧ':'bi','ㄅㄧㄝ':'bie','ㄅㄧㄠ':'biao','ㄅㄧㄢ':'bian','ㄅㄧㄣ':'bin','ㄅㄧㄥ':'bing','ㄅㄨ':'bu','ㄅㄚ':'ba','ㄅㄛ':'bo','ㄅㄞ':'bai','ㄅㄟ':'bei','ㄅㄠ':'bao','ㄅㄢ':'ban','ㄅㄣ':'ben','ㄅㄤ':'bang','ㄅㄥ':'beng',
+  'ㄆㄧ':'pi','ㄆㄧㄝ':'pie','ㄆㄧㄠ':'piao','ㄆㄧㄢ':'pian','ㄆㄧㄣ':'pin','ㄆㄧㄥ':'ping','ㄆㄨ':'pu','ㄆㄚ':'pa','ㄆㄛ':'po','ㄆㄞ':'pai','ㄆㄟ':'pei','ㄆㄠ':'pao','ㄆㄡ':'pou','ㄆㄢ':'pan','ㄆㄣ':'pen','ㄆㄤ':'pang','ㄆㄥ':'peng',
+  'ㄇㄧ':'mi','ㄇㄧㄝ':'mie','ㄇㄧㄠ':'miao','ㄇㄧㄡ':'miu','ㄇㄧㄢ':'mian','ㄇㄧㄣ':'min','ㄇㄧㄥ':'ming','ㄇㄨ':'mu','ㄇㄚ':'ma','ㄇㄛ':'mo','ㄇㄜ':'me','ㄇㄞ':'mai','ㄇㄟ':'mei','ㄇㄠ':'mao','ㄇㄡ':'mou','ㄇㄢ':'man','ㄇㄣ':'men','ㄇㄤ':'mang','ㄇㄥ':'meng',
+  'ㄈㄨ':'fu','ㄈㄚ':'fa','ㄈㄛ':'fo','ㄈㄟ':'fei','ㄈㄡ':'fou','ㄈㄢ':'fan','ㄈㄣ':'fen','ㄈㄤ':'fang','ㄈㄥ':'feng',
+  'ㄉㄧ':'di','ㄉㄧㄝ':'die','ㄉㄧㄠ':'diao','ㄉㄧㄡ':'diu','ㄉㄧㄢ':'dian','ㄉㄧㄥ':'ding','ㄉㄧㄚ':'dia','ㄉㄨ':'du','ㄉㄨㄛ':'duo','ㄉㄨㄟ':'dui','ㄉㄨㄢ':'duan','ㄉㄨㄣ':'dun','ㄉㄨㄥ':'dong','ㄉㄚ':'da','ㄉㄜ':'de','ㄉㄞ':'dai','ㄉㄟ':'dei','ㄉㄠ':'dao','ㄉㄡ':'dou','ㄉㄢ':'dan','ㄉㄤ':'dang','ㄉㄥ':'deng',
+  'ㄊㄧ':'ti','ㄊㄧㄝ':'tie','ㄊㄧㄠ':'tiao','ㄊㄧㄢ':'tian','ㄊㄧㄥ':'ting','ㄊㄨ':'tu','ㄊㄨㄛ':'tuo','ㄊㄨㄟ':'tui','ㄊㄨㄢ':'tuan','ㄊㄨㄣ':'tun','ㄊㄨㄥ':'tong','ㄊㄚ':'ta','ㄊㄜ':'te','ㄊㄞ':'tai','ㄊㄠ':'tao','ㄊㄡ':'tou','ㄊㄢ':'tan','ㄊㄤ':'tang','ㄊㄥ':'teng',
+  'ㄋㄧ':'ni','ㄋㄧㄝ':'nie','ㄋㄧㄠ':'niao','ㄋㄧㄡ':'niu','ㄋㄧㄢ':'nian','ㄋㄧㄣ':'nin','ㄋㄧㄤ':'niang','ㄋㄧㄥ':'ning','ㄋㄨ':'nu','ㄋㄨㄛ':'nuo','ㄋㄨㄢ':'nuan','ㄋㄨㄥ':'nong','ㄋㄩ':'nü','ㄋㄩㄝ':'nüe','ㄋㄚ':'na','ㄋㄜ':'ne','ㄋㄞ':'nai','ㄋㄟ':'nei','ㄋㄠ':'nao','ㄋㄡ':'nou','ㄋㄢ':'nan','ㄋㄣ':'nen','ㄋㄤ':'nang','ㄋㄥ':'neng',
+  'ㄌㄧ':'li','ㄌㄧㄚ':'lia','ㄌㄧㄝ':'lie','ㄌㄧㄠ':'liao','ㄌㄧㄡ':'liu','ㄌㄧㄢ':'lian','ㄌㄧㄣ':'lin','ㄌㄧㄤ':'liang','ㄌㄧㄥ':'ling','ㄌㄨ':'lu','ㄌㄨㄛ':'luo','ㄌㄨㄢ':'luan','ㄌㄨㄣ':'lun','ㄌㄨㄥ':'long','ㄌㄩ':'lü','ㄌㄩㄝ':'lüe','ㄌㄩㄢ':'lüan','ㄌㄚ':'la','ㄌㄜ':'le','ㄌㄞ':'lai','ㄌㄟ':'lei','ㄌㄠ':'lao','ㄌㄡ':'lou','ㄌㄢ':'lan','ㄌㄤ':'lang','ㄌㄥ':'leng',
+  'ㄍㄨ':'gu','ㄍㄨㄚ':'gua','ㄍㄨㄛ':'guo','ㄍㄨㄞ':'guai','ㄍㄨㄟ':'gui','ㄍㄨㄢ':'guan','ㄍㄨㄣ':'gun','ㄍㄨㄤ':'guang','ㄍㄨㄥ':'gong','ㄍㄚ':'ga','ㄍㄜ':'ge','ㄍㄞ':'gai','ㄍㄟ':'gei','ㄍㄠ':'gao','ㄍㄡ':'gou','ㄍㄢ':'gan','ㄍㄣ':'gen','ㄍㄤ':'gang','ㄍㄥ':'geng',
+  'ㄎㄨ':'ku','ㄎㄨㄚ':'kua','ㄎㄨㄛ':'kuo','ㄎㄨㄞ':'kuai','ㄎㄨㄟ':'kui','ㄎㄨㄢ':'kuan','ㄎㄨㄣ':'kun','ㄎㄨㄤ':'kuang','ㄎㄨㄥ':'kong','ㄎㄚ':'ka','ㄎㄜ':'ke','ㄎㄞ':'kai','ㄎㄠ':'kao','ㄎㄡ':'kou','ㄎㄢ':'kan','ㄎㄣ':'ken','ㄎㄤ':'kang','ㄎㄥ':'keng',
+  'ㄏㄨ':'hu','ㄏㄨㄚ':'hua','ㄏㄨㄛ':'huo','ㄏㄨㄞ':'huai','ㄏㄨㄟ':'hui','ㄏㄨㄢ':'huan','ㄏㄨㄣ':'hun','ㄏㄨㄤ':'huang','ㄏㄨㄥ':'hong','ㄏㄚ':'ha','ㄏㄜ':'he','ㄏㄞ':'hai','ㄏㄟ':'hei','ㄏㄠ':'hao','ㄏㄡ':'hou','ㄏㄢ':'han','ㄏㄣ':'hen','ㄏㄤ':'hang','ㄏㄥ':'heng',
+  'ㄐㄧ':'ji','ㄐㄧㄚ':'jia','ㄐㄧㄝ':'jie','ㄐㄧㄠ':'jiao','ㄐㄧㄡ':'jiu','ㄐㄧㄢ':'jian','ㄐㄧㄣ':'jin','ㄐㄧㄤ':'jiang','ㄐㄧㄥ':'jing','ㄐㄩ':'ju','ㄐㄩㄝ':'jue','ㄐㄩㄢ':'juan','ㄐㄩㄣ':'jun','ㄐㄩㄥ':'jiong',
+  'ㄑㄧ':'qi','ㄑㄧㄚ':'qia','ㄑㄧㄝ':'qie','ㄑㄧㄠ':'qiao','ㄑㄧㄡ':'qiu','ㄑㄧㄢ':'qian','ㄑㄧㄣ':'qin','ㄑㄧㄤ':'qiang','ㄑㄧㄥ':'qing','ㄑㄩ':'qu','ㄑㄩㄝ':'que','ㄑㄩㄢ':'quan','ㄑㄩㄣ':'qun','ㄑㄩㄥ':'qiong',
+  'ㄒㄧ':'xi','ㄒㄧㄚ':'xia','ㄒㄧㄝ':'xie','ㄒㄧㄠ':'xiao','ㄒㄧㄡ':'xiu','ㄒㄧㄢ':'xian','ㄒㄧㄣ':'xin','ㄒㄧㄤ':'xiang','ㄒㄧㄥ':'xing','ㄒㄩ':'xu','ㄒㄩㄝ':'xue','ㄒㄩㄢ':'xuan','ㄒㄩㄣ':'xun','ㄒㄩㄥ':'xiong',
+  'ㄓ':'zhi','ㄓㄨ':'zhu','ㄓㄨㄚ':'zhua','ㄓㄨㄛ':'zhuo','ㄓㄨㄞ':'zhuai','ㄓㄨㄟ':'zhui','ㄓㄨㄢ':'zhuan','ㄓㄨㄣ':'zhun','ㄓㄨㄤ':'zhuang','ㄓㄨㄥ':'zhong','ㄓㄚ':'zha','ㄓㄜ':'zhe','ㄓㄞ':'zhai','ㄓㄟ':'zhei','ㄓㄠ':'zhao','ㄓㄡ':'zhou','ㄓㄢ':'zhan','ㄓㄣ':'zhen','ㄓㄤ':'zhang','ㄓㄥ':'zheng',
+  'ㄔ':'chi','ㄔㄨ':'chu','ㄔㄨㄛ':'chuo','ㄔㄨㄞ':'chuai','ㄔㄨㄟ':'chui','ㄔㄨㄢ':'chuan','ㄔㄨㄣ':'chun','ㄔㄨㄤ':'chuang','ㄔㄨㄥ':'chong','ㄔㄚ':'cha','ㄔㄜ':'che','ㄔㄞ':'chai','ㄔㄠ':'chao','ㄔㄡ':'chou','ㄔㄢ':'chan','ㄔㄣ':'chen','ㄔㄤ':'chang','ㄔㄥ':'cheng',
+  'ㄕ':'shi','ㄕㄨ':'shu','ㄕㄨㄚ':'shua','ㄕㄨㄛ':'shuo','ㄕㄨㄞ':'shuai','ㄕㄨㄟ':'shui','ㄕㄨㄢ':'shuan','ㄕㄨㄣ':'shun','ㄕㄨㄤ':'shuang','ㄕㄚ':'sha','ㄕㄜ':'she','ㄕㄞ':'shai','ㄕㄟ':'shei','ㄕㄠ':'shao','ㄕㄡ':'shou','ㄕㄢ':'shan','ㄕㄣ':'shen','ㄕㄤ':'shang','ㄕㄥ':'sheng',
+  'ㄖ':'ri','ㄖㄨ':'ru','ㄖㄨㄛ':'ruo','ㄖㄨㄟ':'rui','ㄖㄨㄢ':'ruan','ㄖㄨㄣ':'run','ㄖㄨㄥ':'rong','ㄖㄜ':'re','ㄖㄠ':'rao','ㄖㄡ':'rou','ㄖㄢ':'ran','ㄖㄣ':'ren','ㄖㄤ':'rang','ㄖㄥ':'reng',
+  'ㄗ':'zi','ㄗㄨ':'zu','ㄗㄨㄛ':'zuo','ㄗㄨㄟ':'zui','ㄗㄨㄢ':'zuan','ㄗㄨㄣ':'zun','ㄗㄨㄥ':'zong','ㄗㄚ':'za','ㄗㄜ':'ze','ㄗㄞ':'zai','ㄗㄟ':'zei','ㄗㄠ':'zao','ㄗㄡ':'zou','ㄗㄢ':'zan','ㄗㄣ':'zen','ㄗㄤ':'zang','ㄗㄥ':'zeng',
+  'ㄘ':'ci','ㄘㄨ':'cu','ㄘㄨㄛ':'cuo','ㄘㄨㄟ':'cui','ㄘㄨㄢ':'cuan','ㄘㄨㄣ':'cun','ㄘㄨㄥ':'cong','ㄘㄚ':'ca','ㄘㄜ':'ce','ㄘㄞ':'cai','ㄘㄠ':'cao','ㄘㄡ':'cou','ㄘㄢ':'can','ㄘㄣ':'cen','ㄘㄤ':'cang','ㄘㄥ':'ceng',
+  'ㄙ':'si','ㄙㄨ':'su','ㄙㄨㄛ':'suo','ㄙㄨㄟ':'sui','ㄙㄨㄢ':'suan','ㄙㄨㄣ':'sun','ㄙㄨㄥ':'song','ㄙㄚ':'sa','ㄙㄜ':'se','ㄙㄞ':'sai','ㄙㄠ':'sao','ㄙㄡ':'sou','ㄙㄢ':'san','ㄙㄣ':'sen','ㄙㄤ':'sang','ㄙㄥ':'seng',
+  'ㄧ':'yi','ㄧㄚ':'ya','ㄧㄛ':'yo','ㄧㄝ':'ye','ㄧㄞ':'yai','ㄧㄠ':'yao','ㄧㄡ':'you','ㄧㄢ':'yan','ㄧㄣ':'yin','ㄧㄤ':'yang','ㄧㄥ':'ying',
+  'ㄨ':'wu','ㄨㄚ':'wa','ㄨㄛ':'wo','ㄨㄞ':'wai','ㄨㄟ':'wei','ㄨㄢ':'wan','ㄨㄣ':'wen','ㄨㄤ':'wang','ㄨㄥ':'weng',
+  'ㄩ':'yu','ㄩㄝ':'yue','ㄩㄢ':'yuan','ㄩㄣ':'yun','ㄩㄥ':'yong',
+  'ㄚ':'a','ㄜ':'e','ㄞ':'ai','ㄠ':'ao','ㄡ':'ou','ㄢ':'an','ㄣ':'en','ㄤ':'ang','ㄥ':'eng','ㄦ':'er'
+};
+const _py2zy = {};
+for (const [zy, py] of Object.entries(_zy2py)) {
+  if (!_py2zy[py]) _py2zy[py] = zy;  // 一對多時取第一個（足夠日常使用）
+}
+const TONE_DIGIT_MARK = { '1':'', '2':'ˊ', '3':'ˇ', '4':'ˋ', '5':'˙', '0':'˙' };
+
+// 把單一音節「正規化」成「注音 + 聲調符號」（無聲調=一聲）
+function normalizeSyllable(tok) {
+  if (!tok) return '';
+  // 1) 切出聲調：尾端可能是 ˊˇˋ˙ 或 1-5 數字
+  let body = tok, tone = '';
+  const tailMark = tok.slice(-1);
+  if ('ˊˇˋ˙'.includes(tailMark)) { body = tok.slice(0, -1); tone = tailMark; }
+  else if (/[0-5]$/.test(tok)) { body = tok.slice(0, -1); tone = TONE_DIGIT_MARK[tok.slice(-1)] || ''; }
+  // 2) body 若全是注音字 → 直接用
+  if (/^[ㄅ-ㄩ]+$/.test(body)) return body + tone;
+  // 3) body 若是拼音 → 查表
+  const py = body.toLowerCase().replace(/v/g, 'ü').replace(/u:/g, 'ü');
+  if (_py2zy[py]) return _py2zy[py] + tone;
+  // 4) 處理 ju/qu/xu/yu 系列（拼音 u 實為 ü 的情形已內建表）
+  return tok;  // 認不出，原樣回，讓 validator 抓
+}
+
+// 把使用者輸入的整串讀音正規化（合併空白、把 - / · 等視為分隔符）
+function normalizeReading(raw) {
+  if (raw == null) return '';
+  let s = String(raw).trim();
+  s = s.replace(/[\-\/·、,，‧]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  return s.split(' ').map(normalizeSyllable).filter(Boolean).join(' ');
+}
+
+// 檢查是否為合法注音串（每音節：注音字 + 可選聲調符號），可指定音節數
+function isValidZhuyin(s, expected) {
+  if (!s) return false;
+  const parts = s.split(' ');
+  if (expected != null && parts.length !== expected) return false;
+  return parts.every(p => /^[ㄅ-ㄩ]+[ˊˇˋ˙]?$/.test(p));
+}
+
+// 顯示用 helper：對任意可能含拼音/dash/數字的字串先做一輪正規化
+function dispRead(s) { return normalizeReading(s) || (s || ''); }
+
 // ── Theme ──
 function applyTheme(t) {
   if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
@@ -296,6 +406,9 @@ let reports = [];          // [{kvKey, type, status, action, ...}]
 let busyKeys = new Set();  // kvKey 進行中
 let _editing = null;       // {kvKey, op, label, placeholder, defaultValue}
 let _addModalCtx = null;   // {kvKey, op}（add modal 的目標）
+let selectedKeys = new Set();
+let _lastClickedKey = null;
+let _marquee = null;       // {x0,y0,x1,y1,moved,additive}
 
 const TONE_MARK_TO_DIGIT = { 'ˊ': '2', 'ˇ': '3', 'ˋ': '4', '˙': '5' };
 function readingToDictKey(reading) {
@@ -329,7 +442,11 @@ async function fetchReports() {
     reports.forEach((r, i) => {
       if (!r.kvKey) r.kvKey = `__no_key_${i}`;
       normalizeAISuggest(r);
+      // 顯示前正規化使用者輸入的讀音欄位（自由輸入 → 統一注音空格分隔）
+      if (r.reading)   r.reading   = dispRead(r.reading);
+      if (r.suggested) r.suggested = dispRead(r.suggested);
     });
+    selectedKeys.clear(); _lastClickedKey = null;
     render();
   } catch(e) {
     showError(`網路錯誤：${e.message}`);
@@ -419,6 +536,7 @@ function render() {
   if (!html) html = '<div class="empty">沒有符合條件的回報（archived 已隱藏）</div>';
 
   main.innerHTML = html;
+  updateBatchBar();
 }
 
 function section(title, items, cardFn) {
@@ -512,11 +630,32 @@ async function deleteReport(kvKey) {
 function openEdit(kvKey, op, opts) { _editing = { kvKey, op, ...(opts||{}) }; render(); setTimeout(()=>document.getElementById('editInput')?.focus(), 30); }
 function closeEdit() { _editing = null; render(); }
 function confirmEdit() {
-  const val = document.getElementById('editInput').value.trim();
-  if (!val) { alert('請輸入內容'); return; }
+  const inp = document.getElementById('editInput');
+  const raw = inp.value.trim();
+  if (!raw) { alert('請輸入內容'); return; }
   const { kvKey, op } = _editing;
+  // 讀音類動作要校驗
+  const NEEDS_ZHUYIN = { fixReading: 1, fixWord: 'word' };
+  if (op in NEEDS_ZHUYIN) {
+    const norm = normalizeReading(raw);
+    let expected = NEEDS_ZHUYIN[op];
+    if (expected === 'word') {
+      const r = reports.find(x => x.kvKey === kvKey);
+      expected = r && r.word ? Array.from(r.word).length : null;
+    }
+    if (!isValidZhuyin(norm, expected)) {
+      alert(`格式錯誤：請用注音 + 空格分隔${expected? ('（需 ' + expected + ' 個音節）') : ''}\n例：ㄏㄠˇ ㄩㄣˋ\n你輸入的：${raw}\n推測為：${norm || '(無法解析)'}`);
+      inp.value = norm || raw;
+      inp.focus(); inp.select();
+      return;
+    }
+    inp.value = norm;
+    _editing = null;
+    exec(kvKey, op, norm);
+    return;
+  }
   _editing = null;
-  exec(kvKey, op, val);
+  exec(kvKey, op, raw);
 }
 function editPanelHTML() {
   return `<div class="edit-panel">
@@ -569,11 +708,26 @@ async function confirmAdd() {
   let action;
   if (op === 'addReading') {
     if (!subj || !content) { alert('字 與 注音 都要填'); return; }
+    const norm = normalizeReading(content);
+    if (!isValidZhuyin(norm, 1)) {
+      alert(`格式錯誤：注音請只填一個音節\n例：ㄏㄜˊ\n你輸入：${content}\n推測為：${norm || '(無法解析)'}`);
+      document.getElementById('addContent').value = norm || content;
+      document.getElementById('addContent').focus();
+      return;
+    }
     action = { type: 'manual_add_reading', char: subj,
-               new_reading: content, new_dict_key: readingToDictKey(content), to_tier: tier };
+               new_reading: norm, new_dict_key: readingToDictKey(norm), to_tier: tier };
   } else {
     if (!subj) { alert('詞不可空'); return; }
-    action = { type: 'manual_add_word', word: subj, z: content, tier };
+    const norm = content ? normalizeReading(content) : '';
+    const expected = Array.from(subj).length;
+    if (norm && !isValidZhuyin(norm, expected)) {
+      alert(`格式錯誤：注音需 ${expected} 個音節，空格分隔\n例：ㄏㄠˇ ㄩㄣˋ\n你輸入：${content}\n推測為：${norm || '(無法解析)'}`);
+      document.getElementById('addContent').value = norm || content;
+      document.getElementById('addContent').focus();
+      return;
+    }
+    action = { type: 'manual_add_word', word: subj, z: norm, tier };
   }
   closeAddModal();
   await postDecision(kvKey, 'agreed', action);
@@ -599,7 +753,8 @@ function postActions(r) {
 function cardShell(r, headerHtml, bodyHtml, actionsHtml) {
   const status = r.status || 'pending';
   const editing = _editing && _editing.kvKey === r.kvKey;
-  return `<div class="card ${status}">
+  const sel = selectedKeys.has(r.kvKey) ? ' selected' : '';
+  return `<div class="card ${status}${sel}" data-kvkey="${esc(r.kvKey)}">
     <div class="card-header">${headerHtml}<span class="card-time">${fmtTime(r.ts)}</span></div>
     ${bodyHtml || ''}
     <div class="card-actions">
@@ -752,11 +907,36 @@ function renderAISuggestCard(r) {
 // 從字卡內嵌的輸入框取注音，再走 exec
 function execAI(kvKey, mode) {
   const inp = document.getElementById(`aiZ-${kvKey}`);
-  const z = (inp?.value || '').trim();
-  if (!z) { alert('請填注音'); inp?.focus(); return; }
-  if (z.includes('?')) {
+  const raw = (inp?.value || '').trim();
+  if (!raw) { alert('請填注音'); inp?.focus(); return; }
+  // 含「?」的缺字 placeholder 允許保留，但其它部分仍要正規化成注音
+  const hasQ = raw.includes('?');
+  const r = reports.find(x => x.kvKey === kvKey);
+  const targetWord = r ? (mode === 'accept' ? r.word : (r.modified || r.word)) : '';
+  const expected = targetWord ? Array.from(targetWord).length : null;
+  let z;
+  if (hasQ) {
+    // 逐音節：「?」保留，其它正規化
+    z = raw.split(/\s+/).map(t => t === '?' ? '?' : normalizeSyllable(t)).join(' ');
+    // 校驗每音節必須是 ? 或合法注音
+    const parts = z.split(' ');
+    const okLen = expected == null || parts.length === expected;
+    const okEach = parts.every(p => p === '?' || /^[ㄅ-ㄩ]+[ˊˇˋ˙]?$/.test(p));
+    if (!okLen || !okEach) {
+      alert(`格式錯誤：請用注音 + 空格分隔（缺字位置可留「?」）\n例：ㄏㄠˇ ?\n你輸入：${raw}\n推測為：${z}`);
+      inp.value = z; inp.focus(); inp.select();
+      return;
+    }
     if (!confirm('注音含「?」（缺字），仍要送出嗎？')) { inp.focus(); return; }
+  } else {
+    z = normalizeReading(raw);
+    if (!isValidZhuyin(z, expected)) {
+      alert(`格式錯誤：請用注音 + 空格分隔${expected ? '（需 ' + expected + ' 個音節）' : ''}\n例：ㄏㄠˇ ㄩㄣˋ\n你輸入：${raw}\n推測為：${z || '(無法解析)'}`);
+      inp.value = z || raw; inp.focus(); inp.select();
+      return;
+    }
   }
+  inp.value = z;
   exec(kvKey, mode === 'accept' ? 'acceptAI' : 'modifyAI', z);
 }
 
@@ -779,6 +959,27 @@ function exportChanges() {
     .map(r => ({ ...r.action, agreed_at: r.decided_at, source_kvKey: r.kvKey }));
 
   if (actions.length === 0) { alert('沒有已確認的變更'); return; }
+
+  // 匯出前 sanity check：所有讀音欄位都要符合「注音 + 空格分隔」格式
+  const bad = [];
+  for (const a of actions) {
+    const checks = [];
+    if (a.type === 'fix_word_reading')   checks.push(['new_z', a.new_z, Array.from(a.word || '').length]);
+    if (a.type === 'manual_add_word' && a.z) checks.push(['z', a.z, Array.from(a.word || '').length]);
+    if (a.type === 'accept_ai_word' && a.z)  checks.push(['z', a.z, Array.from(a.word || '').length]);
+    if (a.type === 'modify_ai_word' && a.z)  checks.push(['z', a.z, Array.from(a.modified || '').length]);
+    if (a.type === 'fix_char_reading')   checks.push(['new_reading', a.new_reading, 1]);
+    if (a.type === 'manual_add_reading') checks.push(['new_reading', a.new_reading, 1]);
+    for (const [field, val, expect] of checks) {
+      if (!isValidZhuyin(val, expect)) {
+        bad.push(`• ${a.type} 「${a.word || a.char || a.modified || ''}」.${field} = ${JSON.stringify(val)}（需 ${expect} 個注音音節）`);
+      }
+    }
+  }
+  if (bad.length) {
+    alert('以下 agreed action 的注音格式不合法，請先回到該卡片修正後再匯出：\n\n' + bad.join('\n'));
+    return;
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const generatedAt = new Date().toISOString();
@@ -835,6 +1036,35 @@ WORD_OVR  = DATA / 'wordlist-overrides.json'
 LOG       = DATA / 'applied-changes.log'
 
 ACTIONS = json.loads(r'''${actionsJSON.replace(/'/g, "\\u0027")}''')
+
+# ── 注音格式雙重把關（admin 已校驗過，這裡是保險絲）──
+import re
+_ZY_SYL = re.compile(r'^[ㄅ-ㄩ]+[ˊˇˋ˙]?$')
+def _valid_z(s, n=None):
+    if not isinstance(s, str) or not s: return False
+    parts = s.split(' ')
+    if n is not None and len(parts) != n: return False
+    return all(_ZY_SYL.match(p) for p in parts)
+def _word_len(w): return len(w) if isinstance(w, str) else 0
+
+_bad = []
+for _a in ACTIONS:
+    _t = _a.get('type')
+    if _t == 'fix_word_reading' and not _valid_z(_a.get('new_z'), _word_len(_a.get('word'))):
+        _bad.append(_a)
+    elif _t in ('manual_add_word', 'accept_ai_word') and _a.get('z') and not _valid_z(_a['z'], _word_len(_a.get('word'))):
+        _bad.append(_a)
+    elif _t == 'modify_ai_word' and _a.get('z') and not _valid_z(_a['z'], _word_len(_a.get('modified'))):
+        _bad.append(_a)
+    elif _t in ('fix_char_reading', 'manual_add_reading'):
+        _k = 'new_reading'
+        if not _valid_z(_a.get(_k), 1): _bad.append(_a)
+if _bad:
+    print('[FATAL] 注音格式不合法，已中止；請回到 admin 修正後重新匯出。共 %d 筆：' % len(_bad))
+    for _a in _bad:
+        print('  -', _a.get('type'), '|', _a.get('word') or _a.get('char') or _a.get('modified'),
+              '| new_z/z/new_reading =', _a.get('new_z') or _a.get('z') or _a.get('new_reading'))
+    sys.exit(1)
 
 # ── overrides schema ──
 # rhyme-dict-overrides.json:
@@ -1026,6 +1256,133 @@ function tierLabel(t) {
 }
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+}
+
+// ── 多選互動 ──
+function updateBatchBar() {
+  // 先把已不存在的 key 從選取清單剔掉
+  const live = new Set(reports.map(r => r.kvKey));
+  for (const k of Array.from(selectedKeys)) if (!live.has(k)) selectedKeys.delete(k);
+  document.querySelectorAll('.card[data-kvkey]').forEach(c => {
+    c.classList.toggle('selected', selectedKeys.has(c.dataset.kvkey));
+  });
+  const bar = document.getElementById('batchBar');
+  bar.classList.toggle('show', selectedKeys.size > 0);
+  document.getElementById('batchCount').textContent = selectedKeys.size;
+}
+function clearSelection() {
+  selectedKeys.clear(); _lastClickedKey = null; updateBatchBar();
+}
+function selectRange(fromKey, toKey) {
+  const keys = Array.from(document.querySelectorAll('.card[data-kvkey]')).map(c => c.dataset.kvkey);
+  const i = keys.indexOf(fromKey), j = keys.indexOf(toKey);
+  if (i < 0 || j < 0) { selectedKeys.add(toKey); return; }
+  const [a, b] = i < j ? [i, j] : [j, i];
+  for (let k = a; k <= b; k++) selectedKeys.add(keys[k]);
+}
+
+document.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  // 點到互動元素 → 完全不介入（按鈕、輸入框、modal 內部）
+  if (e.target.closest('button, input, textarea, select, a, label, .modal, .modal-overlay, .batch-bar, .topbar')) return;
+  // modal 開啟時整個畫面凍結，不啟動框選
+  if (document.querySelector('.modal-overlay.show')) return;
+  const card = e.target.closest('.card[data-kvkey]');
+  if (card) {
+    const k = card.dataset.kvkey;
+    if (e.shiftKey && _lastClickedKey) {
+      if (!(e.metaKey || e.ctrlKey)) selectedKeys.clear();
+      selectRange(_lastClickedKey, k);
+      _lastClickedKey = k;
+      e.preventDefault();
+      updateBatchBar();
+    } else if (e.metaKey || e.ctrlKey) {
+      if (selectedKeys.has(k)) selectedKeys.delete(k); else selectedKeys.add(k);
+      _lastClickedKey = k;
+      e.preventDefault();
+      updateBatchBar();
+    }
+    // 純左鍵點卡片：不動選取，讓使用者能正常閱讀
+    return;
+  }
+  // 點到空白 → 開始橡皮筋
+  _marquee = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, moved: false,
+               additive: e.metaKey || e.ctrlKey || e.shiftKey };
+  document.addEventListener('mousemove', onMarqueeMove);
+  document.addEventListener('mouseup', onMarqueeUp);
+});
+
+function onMarqueeMove(e) {
+  if (!_marquee) return;
+  _marquee.x1 = e.clientX; _marquee.y1 = e.clientY;
+  if (!_marquee.moved &&
+      Math.abs(_marquee.x1 - _marquee.x0) + Math.abs(_marquee.y1 - _marquee.y0) > 4) {
+    _marquee.moved = true;
+    document.getElementById('marqueeBox').style.display = 'block';
+  }
+  if (_marquee.moved) {
+    const box = document.getElementById('marqueeBox');
+    const x = Math.min(_marquee.x0, _marquee.x1);
+    const y = Math.min(_marquee.y0, _marquee.y1);
+    box.style.left = x + 'px'; box.style.top = y + 'px';
+    box.style.width  = Math.abs(_marquee.x1 - _marquee.x0) + 'px';
+    box.style.height = Math.abs(_marquee.y1 - _marquee.y0) + 'px';
+    // 即時預覽：相交即選
+    if (!_marquee.additive) selectedKeys.clear();
+    document.querySelectorAll('.card[data-kvkey]').forEach(c => {
+      const r = c.getBoundingClientRect();
+      const hit = !(r.right < x || r.left > x + parseFloat(box.style.width) ||
+                    r.bottom < y || r.top > y + parseFloat(box.style.height));
+      if (hit) selectedKeys.add(c.dataset.kvkey);
+    });
+    updateBatchBar();
+  }
+}
+function onMarqueeUp() {
+  document.removeEventListener('mousemove', onMarqueeMove);
+  document.removeEventListener('mouseup', onMarqueeUp);
+  document.getElementById('marqueeBox').style.display = 'none';
+  if (_marquee && !_marquee.moved && !_marquee.additive) {
+    // 純空白點擊 → 清除
+    selectedKeys.clear(); _lastClickedKey = null; updateBatchBar();
+  }
+  _marquee = null;
+}
+
+// 批次動作
+async function batchArchive() {
+  const keys = Array.from(selectedKeys);
+  const targets = keys.map(k => reports.find(r => r.kvKey === k)).filter(r => r && r.status !== 'archived');
+  if (!targets.length) { alert('沒有可封存的項目'); return; }
+  if (!confirm(`封存 ${targets.length} 筆？`)) return;
+  for (const r of targets) await postDecision(r.kvKey, 'archived', null);
+  selectedKeys.clear(); _lastClickedKey = null; updateBatchBar();
+}
+async function batchRestore() {
+  const keys = Array.from(selectedKeys);
+  const targets = keys.map(k => reports.find(r => r.kvKey === k)).filter(r => r && r.status);
+  if (!targets.length) { alert('沒有可還原的項目（已是待審狀態）'); return; }
+  if (!confirm(`還原 ${targets.length} 筆為待審？`)) return;
+  for (const r of targets) await postDecision(r.kvKey, 'pending', null);
+  selectedKeys.clear(); _lastClickedKey = null; updateBatchBar();
+}
+async function batchDelete() {
+  const keys = Array.from(selectedKeys);
+  if (!keys.length) return;
+  if (!confirm(`永久刪除 ${keys.length} 筆？此操作無法還原。`)) return;
+  const key = getKey();
+  if (!key) { alert('密鑰遺失'); return; }
+  for (const k of keys) {
+    try {
+      const res = await fetch(`${WORKER_URL}/reports/delete?key=${encodeURIComponent(key)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kvKey: k })
+      });
+      if (res.ok) reports = reports.filter(x => x.kvKey !== k);
+      else { const t = await res.text(); alert(`刪除失敗 (${res.status})：${t}`); break; }
+    } catch(e) { alert(`網路錯誤：${e.message}`); break; }
+  }
+  selectedKeys.clear(); _lastClickedKey = null; render();
 }
 
 // ── 開啟即載入（若已有 key）──
