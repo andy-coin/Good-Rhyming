@@ -3526,15 +3526,9 @@
                 }
             }
             
-            // 聲調符號：注音用符號(ˊˇˋ˙)、拼音用數字(1-5)
+            // 聲調符號：一律用注音符號(ˊˇˋ˙)；拼音模式也沿用，bypass 12345 轉換
             if (showPinyin && displayText) {
-                const showAsZhuyin = lastSearchType === 'bopomofo';
-                let toneMark = '';
-                if (showAsZhuyin) {
-                    toneMark = ['', '', 'ˊ', 'ˇ', 'ˋ', '˙'][item.tone] || '';
-                } else {
-                    toneMark = item.tone > 0 ? String(item.tone) : '';
-                }
+                const toneMark = ['', '', 'ˊ', 'ˇ', 'ˋ', '˙'][item.tone] || '';
                 if (toneMark) {
                     displayText += `<span class="tone-mark">${toneMark}</span>`;
                 }
@@ -4666,7 +4660,7 @@
                 const label = filterWordLen === 0 ? '不限字數'
                     : filterWordLen === 4 ? '4字+'
                     : filterWordLen + '字';
-                chip.textContent = '⚙ ' + label;
+                chip.textContent = '⚙ 限' + label;
                 chip.classList.toggle('active', filterWordLen !== 0);
             }
             suggestedPool.clear();
@@ -5266,7 +5260,7 @@ ${ctxBlock2}${lyricsBlock2}
                                     const html2 = renderCards(more);
                                     if (report) {
                                         report.insertAdjacentHTML('beforebegin', html2);
-                                        report.textContent = `從 ${lastCandidatesTotal} 個候選詞中，挑出 ${words.length + more.length} 個（含補挑第二輪）`;
+                                        report.textContent = `從 ${lastCandidatesTotal} 個候選詞中，挑出 ${words.length + more.length} 個`;
                                     } else {
                                         container.insertAdjacentHTML('beforeend', html2);
                                     }
