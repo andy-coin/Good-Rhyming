@@ -5,13 +5,11 @@
 
   "hidden": [],
 
-  "fixed": [
-    {"char": "潛", "from": "ㄑㄧㄢ2", "to": "ㄔㄤ2"}
-  ],
+  "fixed": [],
 
   "added": [
     {"char": "千", "reading": "ㄔㄤˊ", "dict_key": "ㄔㄤ2", "tier": "normal", "agreed_at": "2026-05-11T11:47:57.752Z", "source_kvKey": "1778495488683_mdu2"}
   ],
 
-  "updated_at": "2026-05-11T19:49:35.610790"
+  "updated_at": "2026-05-11T20:54:04.678560"
 }

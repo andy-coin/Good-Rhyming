@@ -69,3 +69,5 @@
 2026-05-11T19:49:35.610790 | remove_word | {"type": "remove_word", "word": "煩擾", "reason": "重複出現", "agreed_at": "2026-05-11T07:52:47.888Z", "source_kvKey": "1778446233520_1smo"}
 2026-05-11T19:49:35.610790 | remove_word | {"type": "remove_word", "word": "测一下", "reason": "重複出現", "agreed_at": "2026-05-10T21:46:30.781Z", "source_kvKey": "1778437023566_nu75"}
 2026-05-11T19:49:35.610790 | remove_word | {"type": "remove_word", "word": "後奏", "reason": "詞不存在", "agreed_at": "2026-05-11T07:53:01.165Z", "source_kvKey": "1778430357654_k1hm"}
+2026-05-11T20:54:04.678560 | remove_char_reading | {"type": "remove_char_reading", "char": "千", "dict_key": "ㄔㄤ2", "reading": "ㄔㄤˊ", "reason": "讀音錯誤", "agreed_at": "2026-05-11T12:51:26.096Z", "source_kvKey": "1778503869321_sp55"}
+2026-05-11T20:54:04.678560 | fix_char_reading | {"type": "fix_char_reading", "char": "潛", "old_reading": "ㄔㄤˊ", "old_dict_key": "ㄔㄤ2", "new_reading": "ㄑㄧㄢˊ", "new_dict_key": "ㄑㄧㄢ2", "reason": "建議讀音", "agreed_at": "2026-05-11T12:51:46.184Z", "source_kvKey": "1778503824653_mokq"}

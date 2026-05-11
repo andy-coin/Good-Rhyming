@@ -482,41 +482,45 @@ async function fetchReports() {
   }
 }
 
-async function postDecision(kvKey, status, action) {
+// 樂觀更新：先改本地 state + render，背景送 worker；失敗才回滾 + alert
+function postDecision(kvKey, status, action) {
   const key = getKey();
-  if (!key) { alert('密鑰遺失'); return false; }
-  busyKeys.add(kvKey); render();
-  try {
-    const res = await fetch(`${WORKER_URL}/reports/decision?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kvKey, status, action })
-    });
+  if (!key) { alert('密鑰遺失'); return Promise.resolve(false); }
+  const r = reports.find(x => x.kvKey === kvKey);
+  if (!r) return Promise.resolve(false);
+  // snapshot 回滾用
+  const prev = { status: r.status, decided_at: r.decided_at, action: r.action };
+  // 立即套用
+  if (status === 'pending') {
+    delete r.status; delete r.decided_at; delete r.action;
+  } else {
+    r.status = status;
+    r.decided_at = new Date().toISOString();
+    if (action) r.action = action; else delete r.action;
+  }
+  render();
+  return fetch(`${WORKER_URL}/reports/decision?key=${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kvKey, status, action })
+  }).then(async res => {
     if (!res.ok) {
       const t = await res.text();
+      // 回滾
+      if (prev.status === undefined) { delete r.status; delete r.decided_at; delete r.action; }
+      else { r.status = prev.status; r.decided_at = prev.decided_at; if (prev.action) r.action = prev.action; else delete r.action; }
+      render();
       alert(`寫入失敗 (${res.status})：${t}`);
-      busyKeys.delete(kvKey); render();
       return false;
     }
-    // 樂觀更新本地 state
-    const r = reports.find(x => x.kvKey === kvKey);
-    if (r) {
-      if (status === 'pending') {
-        delete r.status; delete r.decided_at; delete r.action;
-      } else {
-        r.status = status;
-        r.decided_at = new Date().toISOString();
-        if (action) r.action = action; else delete r.action;
-      }
-    }
-    busyKeys.delete(kvKey);
-    render();
     return true;
-  } catch(e) {
+  }).catch(e => {
+    if (prev.status === undefined) { delete r.status; delete r.decided_at; delete r.action; }
+    else { r.status = prev.status; r.decided_at = prev.decided_at; if (prev.action) r.action = prev.action; else delete r.action; }
+    render();
     alert(`網路錯誤：${e.message}`);
-    busyKeys.delete(kvKey); render();
     return false;
-  }
+  });
 }
 
 // ── UI helpers ──
@@ -636,30 +640,29 @@ function buildAction(r, op, payload) {
 }
 
 // ── 永久刪除 ──
-async function deleteReport(kvKey) {
+function deleteReport(kvKey) {
   if (!confirm('永久刪除這筆回報？此操作無法還原。')) return;
   const key = getKey();
   if (!key) { alert('密鑰遺失'); return; }
-  busyKeys.add(kvKey); render();
-  try {
-    const res = await fetch(`${WORKER_URL}/reports/delete?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kvKey })
-    });
+  const idx = reports.findIndex(x => x.kvKey === kvKey);
+  if (idx < 0) return;
+  const snapshot = reports[idx];
+  reports.splice(idx, 1);
+  render();
+  fetch(`${WORKER_URL}/reports/delete?key=${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kvKey })
+  }).then(async res => {
     if (!res.ok) {
       const t = await res.text();
+      reports.splice(idx, 0, snapshot); render();
       alert(`刪除失敗 (${res.status})：${t}`);
-      busyKeys.delete(kvKey); render();
-      return;
     }
-    reports = reports.filter(x => x.kvKey !== kvKey);
-    busyKeys.delete(kvKey);
-    render();
-  } catch(e) {
+  }).catch(e => {
+    reports.splice(idx, 0, snapshot); render();
     alert(`網路錯誤：${e.message}`);
-    busyKeys.delete(kvKey); render();
-  }
+  });
 }
 
 // ── 建議讀音：新增為新讀音（直接開 addModal 預填） ──
@@ -1279,10 +1282,24 @@ def apply_action(action, rhyme_ovr, word_ovr):
     # ── 字級 ──
     if t in ('hide_char_reading', 'remove_char_reading'):
         bucket = 'hidden' if t == 'hide_char_reading' else 'removed'
-        entry = {'char': action['char'], 'dict_key': action['dict_key']}
+        char = action['char']
+        dk = action['dict_key']
+        # 互消 1：若 dk 是先前 added 的讀音 → 直接刪掉那筆 added（還原），不寫入 removed/hidden
+        for i, ex in enumerate(rhyme_ovr['added']):
+            if ex.get('char') == char and ex.get('dict_key') == dk:
+                rhyme_ovr['added'].pop(i)
+                print(f'  ✓ {t}→revert_added  {char}|{dk} (added 已移除)')
+                return 'rhyme'
+        # 互消 2：若 dk 是先前 fixed 的 to 目標 → revert（刪掉那筆 fixed，回到原始）
+        for i, ex in enumerate(rhyme_ovr['fixed']):
+            if ex.get('char') == char and ex.get('to') == dk:
+                rhyme_ovr['fixed'].pop(i)
+                print(f'  ✓ {t}→revert_fixed  {char}|{dk} (fixed 已移除)')
+                return 'rhyme'
+        entry = {'char': char, 'dict_key': dk}
         if action.get('reading'): entry['reading'] = action['reading']
         _add_obj_unique(rhyme_ovr[bucket], entry, ('char', 'dict_key'))
-        print(f'  ✓ {t}  {action["char"]}|{action["dict_key"]}')
+        print(f'  ✓ {t}  {char}|{dk}')
         return 'rhyme'
 
     if t == 'fix_char_reading':
@@ -1553,39 +1570,56 @@ function onMarqueeUp() {
 }
 
 // 批次動作
-async function batchArchive() {
+function batchArchive() {
   const keys = Array.from(selectedKeys);
   const targets = keys.map(k => reports.find(r => r.kvKey === k)).filter(r => r && r.status !== 'archived');
   if (!targets.length) { alert('沒有可封存的項目'); return; }
   if (!confirm(`封存 ${targets.length} 筆？`)) return;
-  for (const r of targets) await postDecision(r.kvKey, 'archived', null);
+  targets.forEach(r => postDecision(r.kvKey, 'archived', null));
   selectedKeys.clear(); _lastClickedKey = null; updateBatchBar();
 }
-async function batchRestore() {
+function batchRestore() {
   const keys = Array.from(selectedKeys);
   const targets = keys.map(k => reports.find(r => r.kvKey === k)).filter(r => r && r.status);
   if (!targets.length) { alert('沒有可還原的項目（已是待審狀態）'); return; }
   if (!confirm(`還原 ${targets.length} 筆為待審？`)) return;
-  for (const r of targets) await postDecision(r.kvKey, 'pending', null);
+  targets.forEach(r => postDecision(r.kvKey, 'pending', null));
   selectedKeys.clear(); _lastClickedKey = null; updateBatchBar();
 }
-async function batchDelete() {
+function batchDelete() {
   const keys = Array.from(selectedKeys);
   if (!keys.length) return;
   if (!confirm(`永久刪除 ${keys.length} 筆？此操作無法還原。`)) return;
   const key = getKey();
   if (!key) { alert('密鑰遺失'); return; }
-  for (const k of keys) {
-    try {
-      const res = await fetch(`${WORKER_URL}/reports/delete?key=${encodeURIComponent(key)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kvKey: k })
+  // 立即從本地移除（保留快照供失敗回滾）
+  const snapshots = keys.map(k => {
+    const idx = reports.findIndex(x => x.kvKey === k);
+    return idx >= 0 ? { idx, item: reports[idx] } : null;
+  }).filter(Boolean);
+  reports = reports.filter(x => !keys.includes(x.kvKey));
+  selectedKeys.clear(); _lastClickedKey = null;
+  render();
+  // 平行送 worker
+  let failed = 0;
+  Promise.all(keys.map(k =>
+    fetch(`${WORKER_URL}/reports/delete?key=${encodeURIComponent(key)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kvKey: k })
+    }).then(res => { if (!res.ok) { failed++; return res.text().then(t => ({ k, t, status: res.status })); } return null; })
+      .catch(e => { failed++; return { k, t: e.message, status: 0 }; })
+  )).then(results => {
+    const errs = results.filter(Boolean);
+    if (errs.length) {
+      // 回滾失敗的項目
+      errs.forEach(e => {
+        const snap = snapshots.find(s => s.item.kvKey === e.k);
+        if (snap) reports.push(snap.item);
       });
-      if (res.ok) reports = reports.filter(x => x.kvKey !== k);
-      else { const t = await res.text(); alert(`刪除失敗 (${res.status})：${t}`); break; }
-    } catch(e) { alert(`網路錯誤：${e.message}`); break; }
-  }
-  selectedKeys.clear(); _lastClickedKey = null; render();
+      render();
+      alert(`${errs.length} 筆刪除失敗：\n` + errs.slice(0, 5).map(e => `${e.k}: (${e.status}) ${e.t}`).join('\n'));
+    }
+  });
 }
 
 // ── 開啟即載入（若已有 key）──
