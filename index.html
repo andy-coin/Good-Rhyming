@@ -2774,20 +2774,17 @@
                 ovr = await r.json();
             } catch(e) { return false; }
             let count = 0;
-            for (const [ck, op] of Object.entries(ovr.char_readings || {})) {
-                const pipe = ck.indexOf('|');
-                if (pipe < 0) continue;
-                const char = ck.slice(0, pipe);
-                const dictKey = ck.slice(pipe + 1);
-                if (op.hidden || op.removed) {
-                    if (_removeCharFromRhymeKey(dictKey, char)) count++;
-                } else if (op.fixed_to && op.fixed_to.dict_key) {
-                    _removeCharFromRhymeKey(dictKey, char);
-                    _addCharToRhymeKey(op.fixed_to.dict_key, char, op.fixed_to.tier || 'normal');
-                    count++;
-                }
+            for (const it of (ovr.removed || []).concat(ovr.hidden || [])) {
+                if (!it.char || !it.dict_key) continue;
+                if (_removeCharFromRhymeKey(it.dict_key, it.char)) count++;
             }
-            for (const a of (ovr.added_readings || [])) {
+            for (const it of (ovr.fixed || [])) {
+                if (!it.char || !it.from || !it.to) continue;
+                _removeCharFromRhymeKey(it.from, it.char);
+                _addCharToRhymeKey(it.to, it.char, it.tier || 'normal');
+                count++;
+            }
+            for (const a of (ovr.added || [])) {
                 if (!a.char || !a.dict_key) continue;
                 _addCharToRhymeKey(a.dict_key, a.char, a.tier || 'normal');
                 count++;
@@ -3989,21 +3986,22 @@
                 if (!r.ok) return;
                 ovr = await r.json();
             } catch(e) { return; }
-            const wordOps = ovr.words || {};
-            const added   = ovr.added_words || [];
+            const removedSet = new Set(ovr.removed || []);
+            const hiddenSet  = new Set(ovr.hidden  || []);
+            const fixedMap   = ovr.fixed  || {};
+            const added      = ovr.added  || [];
             const before  = wordlistData.length;
             const filtered = [];
             let removed = 0, fixed = 0;
             for (const e of wordlistData) {
-                const op = wordOps[e.w];
-                if (op && (op.hidden || op.removed)) {
+                if (removedSet.has(e.w) || hiddenSet.has(e.w)) {
                     wordPriorityMap.delete(e.w);
                     wordPhoneticMap.delete(e.w);
                     removed++;
                     continue;
                 }
-                if (op && op.fixed_z) {
-                    e.z = op.fixed_z;
+                if (fixedMap[e.w]) {
+                    e.z = fixedMap[e.w];
                     wordPhoneticMap.set(e.w, e.z);
                     fixed++;
                 }

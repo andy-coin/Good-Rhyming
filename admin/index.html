@@ -1069,24 +1069,26 @@ if _bad:
               '| new_z/z/new_reading =', _a.get('new_z') or _a.get('z') or _a.get('new_reading'))
     sys.exit(1)
 
-# ── overrides schema ──
-# rhyme-dict-overrides.json:
-#   {
-#     "version": 1,
-#     "char_readings": {
-#        "<char>|<dict_key>": {"hidden": bool, "removed": bool,
-#                              "fixed_to": {"reading":..., "dict_key":..., "tier":...}}
-#     },
-#     "added_readings": [{"char","reading","dict_key","tier","agreed_at","source_kvKey"}],
-#     "history": [ {ts, type, ...action} ]
-#   }
+# ── overrides schema v2（分區清楚版）──
 # wordlist-overrides.json:
 #   {
-#     "version": 1,
-#     "words": {"<word>": {"hidden": bool, "removed": bool, "fixed_z": str}},
-#     "added_words": [{"w","z","tier","source","original?","agreed_at","source_kvKey"}],
-#     "history": [ {ts, type, ...action} ]
+#     "version": 2,
+#     "removed":  [word, ...],                        # 一字一筆，10 個換行
+#     "hidden":   [word, ...],
+#     "fixed":    {word: z, ...},                     # 逐詞換行
+#     "added":    [{w, z, tier, source, agreed_at?, source_kvKey?, original?}, ...],
+#     "updated_at": "..."
 #   }
+# rhyme-dict-overrides.json:
+#   {
+#     "version": 2,
+#     "removed":  [{char, dict_key, reading?}, ...],
+#     "hidden":   [{char, dict_key, reading?}, ...],
+#     "fixed":    [{char, from, to, tier?}, ...],     # from/to = dict_key
+#     "added":    [{char, reading, dict_key, tier, agreed_at?, source_kvKey?}, ...],
+#     "updated_at": "..."
+#   }
+# 審計記錄不入 JSON，全部寫進 data/applied-changes.log
 
 def load_json(path, default):
     if path.exists():
@@ -1095,84 +1097,165 @@ def load_json(path, default):
             print(f'  [WARN] 讀取 {path.name} 失敗，視為空：{e}')
     return default
 
-def save_json(path, data):
-    if DRY_RUN:
-        print(f'  [DRY RUN] would write {path.name}')
-        return
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    print(f'  ✓ 寫入 {path.name}')
-
 def ensure_rhyme_ovr():
-    return load_json(RHYME_OVR, {'version': 1, 'char_readings': {}, 'added_readings': [], 'history': []})
+    d = load_json(RHYME_OVR, None)
+    if not d or d.get('version') != 2:
+        return {'version': 2, 'removed': [], 'hidden': [], 'fixed': [], 'added': []}
+    for k in ('removed','hidden','fixed','added'):
+        d.setdefault(k, [])
+    return d
 
 def ensure_word_ovr():
-    return load_json(WORD_OVR, {'version': 1, 'words': {}, 'added_words': [], 'history': []})
+    d = load_json(WORD_OVR, None)
+    if not d or d.get('version') != 2:
+        return {'version': 2, 'removed': [], 'hidden': [], 'fixed': {}, 'added': []}
+    d.setdefault('removed', []); d.setdefault('hidden', [])
+    d.setdefault('fixed', {});   d.setdefault('added', [])
+    return d
+
+# ── 自訂排版寫入 ──
+def _q(s):
+    return json.dumps(s, ensure_ascii=False)
+
+def _fmt_str_array(arr, per_line=10, indent='    '):
+    if not arr: return '[]'
+    items = [_q(x) for x in arr]
+    if len(items) <= per_line:
+        return '[' + ', '.join(items) + ']'
+    chunks = [', '.join(items[i:i+per_line]) for i in range(0, len(items), per_line)]
+    return '[\\n' + indent + (',\\n' + indent).join(chunks) + '\\n  ]'
+
+def _fmt_obj_array(arr, indent='    '):
+    if not arr: return '[]'
+    lines = [json.dumps(x, ensure_ascii=False) for x in arr]
+    return '[\\n' + indent + (',\\n' + indent).join(lines) + '\\n  ]'
+
+def _fmt_str_dict(d, indent='    '):
+    if not d: return '{}'
+    lines = [f'{_q(k)}: {_q(v)}' for k, v in d.items()]
+    return '{\\n' + indent + (',\\n' + indent).join(lines) + '\\n  }'
+
+def save_word_ovr(data):
+    if DRY_RUN:
+        print(f'  [DRY RUN] would write {WORD_OVR.name}'); return
+    out = (
+        '{\\n'
+        f'  "version": {data["version"]},\\n\\n'
+        f'  "removed": {_fmt_str_array(data["removed"])},\\n\\n'
+        f'  "hidden": {_fmt_str_array(data["hidden"])},\\n\\n'
+        f'  "fixed": {_fmt_str_dict(data["fixed"])},\\n\\n'
+        f'  "added": {_fmt_obj_array(data["added"])},\\n\\n'
+        f'  "updated_at": {_q(data["updated_at"])}\\n'
+        '}\\n'
+    )
+    WORD_OVR.write_text(out, encoding='utf-8')
+    print(f'  ✓ 寫入 {WORD_OVR.name}')
+
+def save_rhyme_ovr(data):
+    if DRY_RUN:
+        print(f'  [DRY RUN] would write {RHYME_OVR.name}'); return
+    out = (
+        '{\\n'
+        f'  "version": {data["version"]},\\n\\n'
+        f'  "removed": {_fmt_obj_array(data["removed"])},\\n\\n'
+        f'  "hidden": {_fmt_obj_array(data["hidden"])},\\n\\n'
+        f'  "fixed": {_fmt_obj_array(data["fixed"])},\\n\\n'
+        f'  "added": {_fmt_obj_array(data["added"])},\\n\\n'
+        f'  "updated_at": {_q(data["updated_at"])}\\n'
+        '}\\n'
+    )
+    RHYME_OVR.write_text(out, encoding='utf-8')
+    print(f'  ✓ 寫入 {RHYME_OVR.name}')
+
+# ── 去重 helpers ──
+def _add_str_unique(lst, s):
+    if s not in lst: lst.append(s)
+
+def _add_obj_unique(lst, item, keys):
+    sig = tuple(item.get(k) for k in keys)
+    for ex in lst:
+        if tuple(ex.get(k) for k in keys) == sig: return
+    lst.append(item)
+
+def _remove_str(lst, s):
+    if s in lst: lst.remove(s)
 
 # ── 套用單一 action ──
 def apply_action(action, rhyme_ovr, word_ovr):
     t = action.get('type')
     meta = {k: action.get(k) for k in ('agreed_at', 'source_kvKey') if action.get(k)}
 
-    # 字級
+    # ── 字級 ──
     if t in ('hide_char_reading', 'remove_char_reading'):
-        ck = f"{action['char']}|{action['dict_key']}"
-        entry = rhyme_ovr['char_readings'].setdefault(ck, {})
-        flag = 'hidden' if t == 'hide_char_reading' else 'removed'
-        entry[flag] = True
+        bucket = 'hidden' if t == 'hide_char_reading' else 'removed'
+        entry = {'char': action['char'], 'dict_key': action['dict_key']}
         if action.get('reading'): entry['reading'] = action['reading']
-        print(f'  ✓ {t}  {ck}')
+        _add_obj_unique(rhyme_ovr[bucket], entry, ('char', 'dict_key'))
+        print(f'  ✓ {t}  {action["char"]}|{action["dict_key"]}')
         return 'rhyme'
 
     if t == 'fix_char_reading':
-        ck = f"{action['char']}|{action['old_dict_key']}"
-        rhyme_ovr['char_readings'].setdefault(ck, {})['fixed_to'] = {
-            'reading':  action['new_reading'],
-            'dict_key': action['new_dict_key'],
+        entry = {
+            'char': action['char'],
+            'from': action['old_dict_key'],
+            'to':   action['new_dict_key'],
         }
-        print(f'  ✓ fix_char_reading  {ck} → {action["new_reading"]}')
+        # 同字同 from 視為更新（用新 to 覆蓋）
+        for ex in rhyme_ovr['fixed']:
+            if ex.get('char') == entry['char'] and ex.get('from') == entry['from']:
+                ex.update(entry); break
+        else:
+            rhyme_ovr['fixed'].append(entry)
+        print(f'  ✓ fix_char_reading  {action["char"]}|{action["old_dict_key"]} → {action["new_dict_key"]}')
         return 'rhyme'
 
     if t == 'manual_add_reading':
-        rhyme_ovr['added_readings'].append({
+        entry = {
             'char':     action['char'],
             'reading':  action['new_reading'],
             'dict_key': action['new_dict_key'],
             'tier':     action.get('to_tier', 'normal'),
             **meta,
-        })
+        }
+        _add_obj_unique(rhyme_ovr['added'], entry, ('char', 'dict_key'))
         print(f'  ✓ manual_add_reading  {action["char"]} {action["new_reading"]} ({action.get("to_tier")})')
         return 'rhyme'
 
-    # 詞級
-    if t in ('hide_word', 'remove_word'):
-        flag = 'hidden' if t == 'hide_word' else 'removed'
-        word_ovr['words'].setdefault(action['word'], {})[flag] = True
-        print(f'  ✓ {t}  {action["word"]}')
+    # ── 詞級 ──
+    if t == 'remove_word':
+        _add_str_unique(word_ovr['removed'], action['word'])
+        _remove_str(word_ovr['hidden'], action['word'])  # 互斥
+        word_ovr['fixed'].pop(action['word'], None)
+        print(f'  ✓ remove_word  {action["word"]}')
+        return 'word'
+
+    if t == 'hide_word':
+        _add_str_unique(word_ovr['hidden'], action['word'])
+        _remove_str(word_ovr['removed'], action['word'])
+        print(f'  ✓ hide_word  {action["word"]}')
         return 'word'
 
     if t == 'fix_word_reading':
-        word_ovr['words'].setdefault(action['word'], {})['fixed_z'] = action['new_z']
+        word_ovr['fixed'][action['word']] = action['new_z']
         print(f'  ✓ fix_word_reading  {action["word"]} → {action["new_z"]}')
         return 'word'
 
     if t == 'manual_add_word':
-        word_ovr['added_words'].append({
+        entry = {
             'w': action['word'], 'z': action.get('z', ''),
             'tier': action.get('tier', 'normal'),
-            'source': 'manual',
-            **meta,
-        })
+            'source': 'manual', **meta,
+        }
+        _add_obj_unique(word_ovr['added'], entry, ('w',))
         if not action.get('z'):
-            print(f'  [WARN] manual_add_word "{action["word"]}" 缺注音 z，已寫入但前端會無法處理')
+            print(f'  [WARN] manual_add_word "{action["word"]}" 缺注音 z')
         print(f'  ✓ manual_add_word  {action["word"]} ({action.get("z","?")})')
         return 'word'
 
     if t == 'accept_ai_word':
         z = action.get('z', '')
-        word_ovr['added_words'].append({
-            'w': action['word'], 'z': z,
-            'tier': 'normal', 'source': 'ai_accept', **meta,
-        })
+        entry = {'w': action['word'], 'z': z, 'tier': 'normal', 'source': 'ai_accept', **meta}
+        _add_obj_unique(word_ovr['added'], entry, ('w',))
         if not z or '?' in z:
             print(f'  [WARN] accept_ai_word "{action["word"]}" 注音空或含 ?：{z!r}')
         else:
@@ -1181,12 +1264,11 @@ def apply_action(action, rhyme_ovr, word_ovr):
 
     if t == 'modify_ai_word':
         z = action.get('z', '')
-        word_ovr['added_words'].append({
-            'w': action['modified'], 'z': z,
-            'tier': 'normal', 'source': 'ai_modify',
-            'original': action.get('original'),
-            **meta,
-        })
+        entry = {
+            'w': action['modified'], 'z': z, 'tier': 'normal',
+            'source': 'ai_modify', 'original': action.get('original'), **meta,
+        }
+        _add_obj_unique(word_ovr['added'], entry, ('w',))
         if not z or '?' in z:
             print(f'  [WARN] modify_ai_word "{action.get("original")}" → "{action["modified"]}" 注音空或含 ?：{z!r}')
         else:
@@ -1217,21 +1299,17 @@ def main():
 
     for action in ACTIONS:
         which = apply_action(action, rhyme_ovr, word_ovr)
-        if which == 'rhyme':
-            rhyme_changed = True
-            rhyme_ovr['history'].append({'ts': now, **action})
-        elif which == 'word':
-            word_changed = True
-            word_ovr['history'].append({'ts': now, **action})
+        if which == 'rhyme': rhyme_changed = True
+        elif which == 'word': word_changed = True
         log_lines.append(f"{now} | {action.get('type')} | {json.dumps(action, ensure_ascii=False)}")
 
     print()
     if rhyme_changed:
         rhyme_ovr['updated_at'] = now
-        save_json(RHYME_OVR, rhyme_ovr)
+        save_rhyme_ovr(rhyme_ovr)
     if word_changed:
         word_ovr['updated_at'] = now
-        save_json(WORD_OVR, word_ovr)
+        save_word_ovr(word_ovr)
 
     if not DRY_RUN:
         with open(LOG, 'a', encoding='utf-8') as f:
