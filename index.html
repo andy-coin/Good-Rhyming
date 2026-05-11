@@ -3269,6 +3269,13 @@
         let wordlistData = null;
         let wordlistLoading = false;
         let wordPriorityMap = new Map();
+        // ── 偵錯旗標：開啟後 AI 字卡 hover/右鍵會顯示 p 值（前端無 UI 切換，需手改）──
+        const USE_PRIORITY = false;
+        function _pSuffix(word) {
+            if (!USE_PRIORITY) return '';
+            const p = wordPriorityMap.get(word);
+            return p === undefined ? ' [p=?]' : ` [p=${p}]`;
+        }
         let wordPhoneticMap = new Map();
         const WORDLIST_CHUNKS = 10;
         let suggestedPool = new Set();
@@ -4046,7 +4053,7 @@
             const candidates = [];
             for (const entry of wordlistData) {
                 if (entry.w.length !== targetLen) continue;
-                if (entry.p < minPriority) continue;
+                // if (entry.p < minPriority) continue;  // p 不準確（很多 p=0 並非冷僻），暫停使用
                 if (sentCandidatesSet.has(entry.w)) continue;
                 if (savedSet.has(entry.w)) continue;
                 const syllables = entry.z.split(' ');
@@ -4101,7 +4108,7 @@
             const candidates = [];
             for (const entry of wordlistData) {
                 if (entry.w.length !== targetLen) continue;
-                if (entry.p < minPriority) continue;
+                // if (entry.p < minPriority) continue;  // p 不準確（很多 p=0 並非冷僻），暫停使用
                 if (sentCandidatesSet.has(entry.w)) continue;
                 if (savedSet.has(entry.w)) continue;
                 const syllables = entry.z.split(' ');
@@ -4620,7 +4627,7 @@
             const candidates = [];
             for (const entry of wordlistData) {
                 if (entry.w.length < 2) continue;
-                if (entry.p < minPriority) continue;
+                // if (entry.p < minPriority) continue;  // p 不準確（很多 p=0 並非冷僻），暫停使用
                 if (sentCandidatesSet.has(entry.w)) continue;
                 if (savedSet.has(entry.w)) continue;
                 const syllables = entry.z.split(' ');
@@ -4662,7 +4669,7 @@
             const candidates = [];
             for (const entry of wordlistData) {
                 if (entry.w.length < 2) continue;
-                if (entry.p < minPriority) continue;
+                // if (entry.p < minPriority) continue;  // p 不準確（很多 p=0 並非冷僻），暫停使用
                 if (sentCandidatesSet.has(entry.w)) continue;
                 if (savedSet.has(entry.w)) continue;
                 const syllables = entry.z.split(' ');
@@ -4745,7 +4752,7 @@
             const candidates = [];
             for (const entry of wordlistData) {
                 if (entry.w.length < 2) continue;
-                if (entry.p < minP) continue;
+                // if (entry.p < minP) continue;  // p 不準確（很多 p=0 並非冷僻），暫停使用
                 if (sentCandidatesSet.has(entry.w)) continue;
                 if (savedSet.has(entry.w)) continue;
                 const syllables = entry.z.split(' ');
@@ -5019,7 +5026,6 @@
                 const newBatch = getWordlistCandidatesSelected(); // 詞庫未載入時回傳 null
                 if (newBatch === null) {
                     showToast(wordlistLoading ? '詞庫載入中，請稍後再試' : '詞庫載入失敗，請重新整理頁面');
-                    if (!wordlistLoading) loadWordlist();
                     btn.disabled = false; loading.style.display = 'none'; return;
                 }
                 newBatch.forEach(w => sentCandidatesSet.add(w));
@@ -5054,7 +5060,6 @@
                     : getWordlistCandidates(currentRhymes, currentRhymes.length);
                 if (newBatch === null) {
                     showToast(wordlistLoading ? '詞庫載入中，請稍後再試' : '詞庫載入失敗，請重新整理頁面');
-                    if (!wordlistLoading) loadWordlist();
                     btn.disabled = false; loading.style.display = 'none'; return;
                 }
                 newBatch.forEach(w => sentCandidatesSet.add(w));
@@ -5087,7 +5092,6 @@
                     : getWordlistCandidatesInitial(currentRhymes, currentRhymes.length);
                 if (newBatch === null) {
                     showToast(wordlistLoading ? '詞庫載入中，請稍後再試' : '詞庫載入失敗，請重新整理頁面');
-                    if (!wordlistLoading) loadWordlist();
                     btn.disabled = false; loading.style.display = 'none'; return;
                 }
                 newBatch.forEach(w => sentCandidatesSet.add(w));
@@ -6172,7 +6176,7 @@
             _ctxWord = card.dataset.word || card.textContent.replace('AI','').trim();
             const _ph = getWordPhoneticDisplay(_ctxWord);
             document.getElementById('wordCtxTitle').innerHTML =
-                _ctxWord + (_ph ? `<span class="ctx-phonetic">${_ph}</span>` : '');
+                _ctxWord + (_ph ? `<span class="ctx-phonetic">${_ph}</span>` : '') + _pSuffix(_ctxWord);
             _setCtxMenuFor(card);
             const x = Math.min(e.clientX, window.innerWidth - 160);
             const y = Math.min(e.clientY, window.innerHeight - 140);
@@ -6191,7 +6195,7 @@
             _longPressTimer = setTimeout(() => {
                 if (_longPressMoved) return;
                 _ctxWord = card.dataset.word || card.textContent.replace('AI','').trim();
-                document.getElementById('wordCtxTitle').textContent = `「${_ctxWord}」`;
+                document.getElementById('wordCtxTitle').textContent = `「${_ctxWord}」` + _pSuffix(_ctxWord);
                 _setCtxMenuFor(card);
                 const touch = e.touches[0];
                 const x = Math.min(touch.clientX, window.innerWidth - 160);
@@ -6213,8 +6217,9 @@
             clearTimeout(_phoneticTimer);
             _phoneticTimer = setTimeout(() => {
                 const phonetic = getWordPhoneticDisplay(card.dataset.word);
-                if (!phonetic) return;
-                _phoneticTooltip.textContent = phonetic;
+                const suffix = _pSuffix(card.dataset.word);
+                if (!phonetic && !suffix) return;
+                _phoneticTooltip.textContent = (phonetic || '') + suffix;
                 const rect = card.getBoundingClientRect();
                 _phoneticTooltip.style.left = (rect.left + rect.width / 2) + 'px';
                 _phoneticTooltip.style.top = rect.top + 'px';
