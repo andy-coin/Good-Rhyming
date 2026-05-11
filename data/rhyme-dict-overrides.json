@@ -1,0 +1,15 @@
+{
+  "version": 2,
+
+  "removed": [],
+
+  "hidden": [],
+
+  "fixed": [
+    {"char": "潛", "from": "", "to": "ㄔㄤ2"}
+  ],
+
+  "added": [],
+
+  "updated_at": "2026-05-11T18:18:17.555823"
+}
