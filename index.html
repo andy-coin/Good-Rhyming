@@ -301,6 +301,11 @@
         }
         .poly-chip:hover { background: rgba(102, 126, 234, 0.18); border-color: #667eea; }
         .poly-chip.active { background: #667eea; border-color: #667eea; color: #fff; }
+        .poly-chip.rare { opacity: 0.62; border-style: dashed; }
+        .poly-chip.rare.active { opacity: 1; }
+        .poly-chip .rare-mark { font-size: 0.62rem; opacity: 0.75; margin-left: 3px; vertical-align: 1px; }
+        .word-ctx-reading-row .rare-mark { font-size: 0.65rem; opacity: 0.7; margin-left: 4px; }
+        .word-ctx-reading-row.rare { opacity: 0.72; }
         
         .options {
             display: flex;
@@ -3306,22 +3311,28 @@
             return _polyphonicsOrderPromise;
         }
 
+        // 回傳 [{reading, tier}, ...]；以 polyphonicsOrderMap 為序，未列出的接在後面
         function getCharAllReadings(char) {
             const infos = charInfo[char];
             if (!infos) return [];
-            const seen = new Set();
-            const all = [];
-            for (const {zhuyin, tone} of infos) {
+            const map = new Map(); // reading → tier（同讀音多 tier 時取最佳：common > normal > rare）
+            const rank = { common: 0, normal: 1, rare: 2 };
+            for (const {zhuyin, tone, tier} of infos) {
                 const full = zhuyin + _TONE_MARKS[tone - 1];
-                if (!seen.has(full)) { seen.add(full); all.push(full); }
+                const cur = map.get(full);
+                if (!cur || rank[tier] < rank[cur]) map.set(full, tier);
             }
+            const ordered = [];
+            const used = new Set();
             if (polyphonicsOrderMap && polyphonicsOrderMap.has(char)) {
-                const order = polyphonicsOrderMap.get(char);
-                const result = order.filter(r => seen.has(r));
-                for (const r of all) { if (!result.includes(r)) result.push(r); }
-                return result;
+                for (const r of polyphonicsOrderMap.get(char)) {
+                    if (map.has(r)) { ordered.push({ reading: r, tier: map.get(r) }); used.add(r); }
+                }
             }
-            return all;
+            for (const [r, tier] of map) {
+                if (!used.has(r)) ordered.push({ reading: r, tier });
+            }
+            return ordered;
         }
 
         function isPolyphonic(char) {
@@ -3339,19 +3350,22 @@
             // 等待期間若使用者已切換到別的字，放棄
             if (_getSearchSingleChar(searchInputEl.value) !== char) return;
             if (document.getElementById('polyphonicChips')) return;
-            const readings = getCharAllReadings(char);
+            let readings = getCharAllReadings(char);
+            const hideRare = document.getElementById('hideRare')?.checked;
+            if (hideRare) readings = readings.filter(it => it.tier !== 'rare');
             if (readings.length <= 1) return;
 
             // 載入時自動採用第一順位讀音（以 polyphonic-order.json 為準），
             // 讓字卡一進來就匹配第一個 chip（避免跟字庫插入順序不一致）
-            if (!_polyphonic.reading || _polyphonic.char !== char) {
-                _polyphonic = { char, reading: readings[0] };
+            const firstReading = readings[0].reading;
+            if (!_polyphonic.reading || _polyphonic.char !== char || !readings.some(it => it.reading === _polyphonic.reading)) {
+                _polyphonic = { char, reading: firstReading };
             }
 
             const header = document.querySelector('.results-header');
             if (!header) return;
 
-            const active = (_polyphonic.char === char && _polyphonic.reading) ? _polyphonic.reading : readings[0];
+            const active = (_polyphonic.char === char && _polyphonic.reading) ? _polyphonic.reading : firstReading;
             const container = document.createElement('div');
             container.id = 'polyphonicChips';
             container.className = 'polyphonic-chips';
@@ -3367,9 +3381,11 @@
             };
             container.innerHTML =
                 '<span class="polyphonic-chips-label">破音字：</span>' +
-                readings.map(r =>
-                    `<button class="poly-chip${r === active ? ' active' : ''}" data-char="${char}" data-reading="${r}" onclick="selectPolyphonicReading('${char}','${r}')">${fmtChip(r)}</button>`
-                ).join('');
+                readings.map(({reading: r, tier}) => {
+                    const cls = `poly-chip${r === active ? ' active' : ''}${tier === 'rare' ? ' rare' : ''}`;
+                    const mark = tier === 'rare' ? '<span class="rare-mark">冷</span>' : '';
+                    return `<button class="${cls}" data-char="${char}" data-reading="${r}" onclick="selectPolyphonicReading('${char}','${r}')">${fmtChip(r)}${mark}</button>`;
+                }).join('');
             header.appendChild(container);
         }
 
@@ -4832,14 +4848,17 @@
         }
         // 取得單字所有讀音（含聲調）的格式化陣列。
         // 排序原則：先依 polyphonicsOrderMap（破音字讀音順序表）為準，未列出的接在後面。
+        // 回傳 [{text, tier}, ...]；hideRare 模式下會自動過濾 rare
         function getCharReadingsFormatted(char) {
             const infos = charInfo[char] || [];
             const _TONE_TO_MARK = ['', '', 'ˊ', 'ˇ', 'ˋ', '˙'];
+            const rank = { common: 0, normal: 1, rare: 2 };
             // 用注音+聲調符號的形式當索引（與 polyphonicsOrderMap 的 key 一致）
             const byZyKey = new Map();
-            for (const { zhuyin, tone } of infos) {
+            for (const { zhuyin, tone, tier } of infos) {
                 const zyKey = zhuyin + (_TONE_TO_MARK[tone] || '');
-                if (!byZyKey.has(zyKey)) byZyKey.set(zyKey, { zhuyin, tone });
+                const cur = byZyKey.get(zyKey);
+                if (!cur || rank[tier] < rank[cur.tier]) byZyKey.set(zyKey, { zhuyin, tone, tier });
             }
             const ordered = [];
             const used = new Set();
@@ -4851,11 +4870,13 @@
             for (const [zyKey, v] of byZyKey) {
                 if (!used.has(zyKey)) ordered.push(v);
             }
+            const hideRare = document.getElementById('hideRare')?.checked;
             const seen = new Set();
             const out = [];
-            for (const { zhuyin, tone } of ordered) {
+            for (const { zhuyin, tone, tier } of ordered) {
+                if (hideRare && tier === 'rare') continue;
                 const s = fmtPhonetic(zhuyin, tone);
-                if (s && !seen.has(s)) { seen.add(s); out.push(s); }
+                if (s && !seen.has(s)) { seen.add(s); out.push({ text: s, tier }); }
             }
             return out;
         }
@@ -6001,7 +6022,11 @@
             _charCtxChar = char;
             const readings = getCharReadingsFormatted(char);
             document.getElementById('wordCtxTitle').textContent = char;
-            const readingRows = readings.map(r => `<div class="word-ctx-reading-row">${r}</div>`).join('');
+            const readingRows = readings.map(({text, tier}) => {
+                const cls = tier === 'rare' ? 'word-ctx-reading-row rare' : 'word-ctx-reading-row';
+                const mark = tier === 'rare' ? '<span class="rare-mark">冷</span>' : '';
+                return `<div class="${cls}">${text}${mark}</div>`;
+            }).join('');
             document.getElementById('wordCtxItems').innerHTML =
                 readingRows +
                 `<div class="word-ctx-item" onclick="charSuggestReading()">🔤 建議讀音</div>`;
@@ -6012,7 +6037,7 @@
         function charSuggestReading() {
             _hideCtxMenu();
             if (!_charCtxChar) return;
-            const current = getCharReadingsFormatted(_charCtxChar).join('／');
+            const current = getCharReadingsFormatted(_charCtxChar).map(r => r.text).join('／');
             const hint = lastSearchType === 'pinyin'
                 ? '建議的拼音（含聲調數字，例：chang2）：'
                 : '建議的注音（含聲調符號，例：ㄔㄤˊ）：';
