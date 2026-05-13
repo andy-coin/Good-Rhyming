@@ -81,3 +81,18 @@
 2026-05-11T21:11:43.030231 | fix_char_reading | {"type": "fix_char_reading", "char": "潛", "old_reading": "ㄔㄤˊ", "old_dict_key": "ㄔㄤ2", "new_reading": "ㄑㄧㄢˊ", "new_dict_key": "ㄑㄧㄢ2", "reason": "建議讀音", "agreed_at": "2026-05-11T12:51:45.781Z", "source_kvKey": "1778503824653_mokq"}
 2026-05-11T21:11:44.930302 | remove_char_reading | {"type": "remove_char_reading", "char": "千", "dict_key": "ㄔㄤ2", "reading": "ㄔㄤˊ", "reason": "讀音錯誤", "agreed_at": "2026-05-11T12:51:25.686Z", "source_kvKey": "1778503869321_sp55"}
 2026-05-11T21:11:44.930302 | fix_char_reading | {"type": "fix_char_reading", "char": "潛", "old_reading": "ㄔㄤˊ", "old_dict_key": "ㄔㄤ2", "new_reading": "ㄑㄧㄢˊ", "new_dict_key": "ㄑㄧㄢ2", "reason": "建議讀音", "agreed_at": "2026-05-11T12:51:45.781Z", "source_kvKey": "1778503824653_mokq"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "奶黃包", "reason": "重複出現", "agreed_at": "2026-05-13T16:40:45.033Z", "source_kvKey": "1778682618237_zlyk"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "沃野", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:00.333Z", "source_kvKey": "1778521473860_gm7g"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "後桅", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:01.108Z", "source_kvKey": "1778521459376_dgnz"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "秋決", "reason": "詞不存在", "agreed_at": "2026-05-13T16:41:03.359Z", "source_kvKey": "1778521445408_pfks"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "樂境", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:04.112Z", "source_kvKey": "1778521374394_vpvl"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "釋教", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:05.720Z", "source_kvKey": "1778521300371_3cvj"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "蜃景", "reason": "詞不存在", "agreed_at": "2026-05-13T16:41:08.859Z", "source_kvKey": "1778521274885_0wdo"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "山積", "reason": "詞不存在", "agreed_at": "2026-05-13T16:41:09.725Z", "source_kvKey": "1778521242604_3j92"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "暈臺", "reason": "詞不存在", "agreed_at": "2026-05-13T16:41:15.496Z", "source_kvKey": "1778520893663_n4bg"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "顧懷", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:16.610Z", "source_kvKey": "1778520876190_8woe"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "拭目而待", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:20.333Z", "source_kvKey": "1778520867886_z9pb"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "稅改", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:21.357Z", "source_kvKey": "1778520861778_az4y"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "描黛", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:22.391Z", "source_kvKey": "1778520768482_sqh0"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "摘起來", "reason": "詞不存在", "agreed_at": "2026-05-13T16:41:23.630Z", "source_kvKey": "1778520762453_xln3"}
+2026-05-14T00:42:04.005620 | remove_word | {"type": "remove_word", "word": "俊邁", "reason": "極度冷僻", "agreed_at": "2026-05-13T16:41:24.867Z", "source_kvKey": "1778520742551_g9ua"}
