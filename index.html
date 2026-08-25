@@ -4447,23 +4447,13 @@
 
         // 模型清單（強→弱）。autoFallback=false 的不會被自動降級流程使用
         const LLM_MODELS = [
-            // GitHub
-            // { id: 'gpt-4.1',                                   label: 'GPT-4.1',                provider: 'github', autoFallback: true },
-            // { id: 'gpt-4.1-mini',                              label: 'GPT-4.1 Mini',           provider: 'github', autoFallback: false },
-            // { id: 'gpt-4o',                                    label: 'GPT-4o',                 provider: 'github', autoFallback: false },
-            // { id: 'Mistral-Medium-2505',                       label: 'Mistral Medium',         provider: 'github', autoFallback: true },
-            // { id: 'DeepSeek-V3-0324',                          label: 'DeepSeek V3',            provider: 'github', autoFallback: true },
-            // { id: 'DeepSeek-R1',                               label: 'DeepSeek R1 (slow)',     provider: 'github', autoFallback: false },
-            // { id: 'Llama-4-Maverick-17B-128E-Instruct-FP8',    label: 'Llama 4 Maverick',       provider: 'github', autoFallback: true },
-            // { id: 'Llama-4-Scout-17B-16E-Instruct',            label: 'Llama 4 Scout (slow)',   provider: 'github', autoFallback: false },
             // Gemini（直連，domain restriction 保護）
             { id: 'gemini-3.5-flash-lite',                     label: 'Gemini 3.5 Flash-Lite',  provider: 'gemini', autoFallback: false },
-            { id: 'gemini-3.5-flash',                          label: 'Gemini 2.5 Flash',       provider: 'gemini', autoFallback: false },
-            { id: 'gemini-2.5-flash',                          label: 'Gemini 2.5 Flash',  provider: 'gemini', autoFallback: false },
-            // Groq（隱藏備用）
-            { id: 'qwen/qwen3-32b',                            label: '備用 · Qwen3 32B',        provider: 'groq', autoFallback: false, hidden: false },
-            { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: '備用 · Llama 4 Scout',    provider: 'groq', autoFallback: false, hidden: false },
-            { id: 'llama-3.3-70b-versatile',                   label: '備用 · Llama 3.3 70B',    provider: 'groq', autoFallback: false, hidden: false },
+            { id: 'gemini-3.7-flash',                          label: 'Gemini 3.7 Flash',       provider: 'gemini', autoFallback: false },
+            { id: 'gemini-2.5-flash',                          label: 'Gemini 2.5 Flash',       provider: 'gemini', autoFallback: false },
+            // Groq
+            { id: 'qwen/qwen3.6-27b',                          label: ' Qwen3.6 27B',           provider: 'groq', autoFallback: false, hidden: false },
+            { id: 'openai/gpt-oss-120b',                       label: 'OpenAI GPT-OSS 120B',    provider: 'groq', autoFallback: false, hidden: false },
         ];
 
         // 修改後的邏輯：只要是走你 Worker 的 Provider，都不需要前端傳 Key
